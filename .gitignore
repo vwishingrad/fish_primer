@@ -47,3 +47,8 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+.DS_Store
+
+# by default ignore contents of data/, except for what's added
+# data/*
