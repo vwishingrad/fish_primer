@@ -116,7 +116,7 @@ fishes <- markers %>%
     marker <- .x
     
     # read marker data and filter to just chordates
-    chordates <- read_tsv(path(data_dir,str_glue("{marker}_data.txt")),col_types = cols()) %>%
+    chordates <- read_tsv(path(data_dir,str_glue("{marker}_data.tsv")),col_types = cols()) %>%
       # make nicer 'machine-readable' column names
       clean_names() %>%
       filter(phylum == "Chordata")
