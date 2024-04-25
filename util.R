@@ -206,3 +206,47 @@ upset_plot <- function(dataset, name_column, data_columns, dot_size = 6, line_si
   "
   return(top_bars + side_bars + dots + plot_layout(design=layout))
 }
+
+# new version of ggplot.ggdent that supports text angle
+newggplot.ggdend <- function (data = NULL, mapping = aes(), ..., segments = TRUE, 
+                              labels = TRUE, nodes = TRUE, horiz = FALSE, theme = theme_dendro(), 
+                              offset_labels = 0, na.rm = TRUE, environment = parent.frame(), angle = 90) 
+{
+  data <- prepare.ggdend(data)
+  angle <- ifelse(horiz, 0, angle)
+  hjust <- ifelse(horiz, 0, 1)
+  p <- ggplot(mapping = mapping, ...)
+  if (segments) {
+    p <- p + geom_segment(data = data$segments, na.rm = na.rm, 
+                          aes_string(x = "x", y = "y", xend = "xend", yend = "yend", 
+                                     colour = "col", linetype = "lty", size = "lwd"), 
+                          lineend = "square") + guides(linetype = "none", col = "none") + 
+      scale_colour_identity() + scale_size_identity() + 
+      scale_linetype_identity()
+  }
+  if (nodes) {
+    p <- p + geom_point(data = data$nodes, na.rm = na.rm, 
+                        aes_string(x = "x", y = "y", colour = "col", shape = "pch", 
+                                   size = "cex")) + guides(shape = "none", col = "none", 
+                                                           size = "none") + scale_shape_identity()
+  }
+  if (labels) {
+    data$labels$cex <- 5 * data$labels$cex
+    data$labels$y <- data$labels$y + offset_labels
+    p <- p + geom_text(data = data$labels, aes_string(x = "x", 
+                                                      y = "y", label = "label", colour = "col", size = "cex"), 
+                       hjust = hjust, angle = angle)
+  }
+  if (horiz) {
+    p <- p + coord_flip() + scale_y_reverse(expand = c(0.2, 
+                                                       0))
+  }
+  if (!is.null(theme)) {
+    p <- p + theme
+  }
+  p
+}
+
+# replace the function in the package namespace
+assignInNamespace(x = "ggplot.ggdend", ns = "dendextend", value = newggplot.ggdend)
+
