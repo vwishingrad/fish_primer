@@ -1,3 +1,48 @@
+# I don't love the pairwise adonis options available in packages so I made my own
+pairwise_adonis <- function(comm, factors, permutations = 1000, correction = "fdr", method = "bray") {
+  # get possible pairwise factor combinations
+  factor_combos <- combn(unique(as.character(factors)), 2)
+  # map through factor combinations and run model for each pair,
+  # dumping the output into a tibble
+  model_output <- map_dfr(array_branch(factor_combos,2), ~{
+    fact <- factors[factors %in% .x]
+    
+    # get our factor specific community or distance matrix
+    if (inherits(comm,'dist')) {
+      dd <- as.dist(as.matrix(comm)[factors %in% .x, factors %in% .x])
+    } else {
+      comm <- as(comm,'matrix')
+      dd <- vegdist(comm[factors %in% .x,], method = method)
+    }
+    
+    # run the permanova model and return the results in a list
+    # to make the data frame rows
+    model <- adonis2(dd ~ fact, permutations = permutations) %>%
+      as_tibble()
+    df <- model$Df[1]
+    ss <- model$SumOfSqs[1]
+    pseudo_f <- model$F[1]
+    p_val <- model$`Pr(>F)`[1]
+    
+    list(
+      "left" = .x[1],
+      "right" = .x[2],
+      "df" = df,
+      "ss" = ss,
+      "pseudo_f" = pseudo_f,
+      "p_val" = p_val
+    )
+  })
+  
+  # return the results with adjusted p-values
+  model_output %>%
+    mutate(
+      p_adj = p.adjust(p_val, method = correction)
+    )
+}
+
+
+# make an upset plot
 upset_plot <- function(dataset, name_column, data_columns, dot_size = 6, line_size=2,
                        prefilter=F, intersects=NA, min_intersects=0, bar_lab = "intersections",
                        sidebar_lab = "number in category", label_top_bars = FALSE, label_side_bars = FALSE,

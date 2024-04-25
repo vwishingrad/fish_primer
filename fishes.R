@@ -8,9 +8,13 @@ library(vegan)
 library(paletteer)
 library(httr)
 library(EcolUtils)
+library(dendextend)
 
 
 # setup -------------------------------------------------------------------
+
+# source utility functions
+source("util.R")
 
 # get rid of annoying '`summarise()` has grouped output by' message
 options(dplyr.summarise.inform = FALSE)
@@ -260,7 +264,10 @@ datasets <- c(FALSE,TRUE) %>%
           # filter out zero reads
           filter(reads > 0) %>%
           # set blank taxa to unidentified
-          mutate(across(domain:species,~replace(.x,which(.x == ""),"unidentified")))
+          mutate(
+            across(domain:species,~replace(.x,which(.x == ""),"unidentified")),
+            marker = factor(marker,levels=markers)
+          )
       })
   })
 
@@ -503,9 +510,6 @@ div_plotz$raw$sharkpen$true_shannon +
 
 # zotu intersections (upset plots) ----------------------------------------
 
-# pull in upset plotting code
-source("upset.R")
-
 # intersections
 # which column to show intersections for
 # for reasons, these have to be expressions rather than strings
@@ -653,3 +657,152 @@ expected_plotz <- datasets %>%
 expected_plotz$raw$mock
 expected_plotz$raw$aquarium
 
+# community multivariate statistics ---------------------------------------
+
+community_stats <- datasets %>%
+  map(~{
+    dataset <- .x
+    dataset %>%
+      imap(~{
+        dsn <- .y
+        div <- .x %>%
+          # pull out needed columns
+          select(marker,sample,zotu,reads) %>%
+          # pivot to zotu x sample wide format
+          pivot_wider(names_from="zotu",values_from="reads",values_fill = 0) %>%
+          # join metadata so we can get "clean" sample names (do we need this?)
+          left_join(metadata %>% select(contains("sample")), by=c("sample" = "clean_sample")) %>%
+          # make sure we have the correct sample name
+          select(-sample, sample = sample.y) %>%
+          # order columns appropriately
+          select(marker,sample,everything())
+        dr <- div %>%
+          select(-marker) %>%
+          column_to_rownames("sample") %>%
+          decostand("total")
+        
+        sd <- div %>%
+          select(sample,marker)
+        
+        dd <- vegdist(dr,method="bray")
+        
+        list(
+          permanova = adonis2(dr ~ marker,data=sd,method = "bray"),
+          pairwise = pairwise_adonis(dr,sd$marker,method="bray"),
+          permdisp = betadisper(dd,sd$marker,bias.adjust = TRUE),
+          dist = dd
+        )
+      })
+  })
+
+# pcoa plots --------------------------------------------------------------
+#(make sure you run the previous code section first)
+# map through permdisp objects
+pcoa_plotz <- community_stats %>%
+  imap(~{
+    ds <- .y
+    .x %>% 
+      imap(~{
+        dsn <- .y
+        ss <- .x
+        
+        # get sample data
+        sd <- datasets[[ds]][[dsn]] %>%
+          # get distinct sample/marker combos
+          distinct(sample,marker) %>%
+          # make sure we have our "clean" sample names as well
+          inner_join(metadata %>% select(sample,clean_sample),by=c("sample" = "clean_sample")) %>%
+          # retain the correct columns
+          select(-sample, sample = sample.y) %>%
+          # make sure we retain missing markers so they all show up in the legends
+          mutate(marker = factor(marker,levels=markers))
+        
+        # calculate axis explained variance
+        axes <- ss$permdisp$eig / sum(ss$permdisp$eig)
+        
+        # make tibble of pcoa coordinates and join in sample data
+        bb <- ss$permdisp$vectors %>%
+          as_tibble(rownames="sample") %>%
+          left_join(sd,by="sample")
+        
+        # plot pcoa
+        ggplot(bb,aes(x=PCoA1,y=PCoA2,fill=marker)) + 
+          # show.legend=TRUE makes it so missing factor levels still show up in the key
+          geom_point(shape=21,size=4,color="black",show.legend=TRUE) + 
+          # drop=FALSE also ensures missing factor levels are retained
+          scale_fill_manual(values=marker_pal,name="Marker",drop=FALSE) +
+          theme_bw() + 
+          xlab(str_glue("PCOA1 ({scales::percent(axes[1],accuracy=0.1)})")) + 
+          ylab(str_glue("PCOA2 ({scales::percent(axes[2],accuracy=0.1)})")) + 
+          labs(title=title_map[dsn])
+      })
+  })
+
+# make composite figures for each major dataset (raw vs rarefied)
+pcoa_composites <- pcoa_plotz %>%
+  map(~{
+    .x %>%
+      reduce(`+`)
+  })
+
+# show plots, smashing together similar legends
+pcoa_composites$raw + plot_layout(guides="collect")
+pcoa_composites$rarefied + plot_layout(guides="collect")
+
+
+
+# cluster plots -----------------------------------------------------------
+
+# use previously-calculated distance matrices do do cluster plots
+cluster_plotz <- community_stats %>%
+  imap(~{
+    ds <- .y
+    .x %>%
+      imap(~{
+        dsn <- .y
+        dd <- .x$dist
+        
+        # do a cluster analysis and convert to ggdend object
+        upgma <- dd %>% 
+          hclust(method = "average") %>%
+          as.dendrogram() %>%
+          as.ggdend()
+        
+        # plot it using ggplot.ggdend
+        uplot <- ggplot(upgma,hang=-1,angle=45) +
+          expand_limits(y=-0.15,x=-0.3)
+        
+        # do a cluster analysis and convert to ggdend object
+        ward <- dd %>%
+          hclust(method = "ward.D2") %>%
+          as.dendrogram() %>%
+          as.ggdend()
+        
+        # plot it using ggplot.ggdend
+        wplot <- ggplot(ward,hang=-1,angle=45) +
+          expand_limits(y=-0.3,x=-0.3)
+        
+        # return list of both plots
+        list(upgma = uplot, ward = wplot)
+        
+      })
+  })
+
+# make composites of the ward clusters
+ward_composite <- cluster_plotz %>% 
+  map(~{
+    .x %>% 
+      imap(~.x$ward + labs(title=title_map[.y])) %>%
+      reduce(`+`)
+  })
+ward_composite$raw
+
+
+# make composites of the upgma clusters
+upgma_composite <- cluster_plotz %>% 
+  map(~{
+    .x %>% 
+      imap(~.x$upgma + labs(title=title_map[.y])) %>%
+      reduce(`+`)
+  })
+upgma_composite$raw
