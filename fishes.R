@@ -88,8 +88,8 @@ nasum <- function(x) sum(x,na.rm=TRUE)
 
 
 # download ncbi taxonomy
-get_lineage <- function() {
-  nlf <- path(data_dir,"rankedlineage.dmp")
+get_lineage <- function(nlf) {
+  # nlf <- path(data_dir,"rankedlineage.dmp")
   if (!file_exists(nlf)) {
     url <- "https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/new_taxdump/new_taxdump.zip"
     taxdump <- path(data_dir,"taxdump.zip")
@@ -554,7 +554,7 @@ upset_plotz$raw$mock$zotu / upset_plotz$raw$mock$family
 # expected vs unexpected species detections -------------------------------
 
 # get ncbi ranked lineage dump
-lineage <- get_lineage()
+lineage <- get_lineage(path(data_dir,"rankedlineage.dmp"))
 
 # create
 expected_plotz <- datasets %>%
