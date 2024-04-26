@@ -579,6 +579,9 @@ show_inv <- c(
   sharkpen = TRUE
 )
 
+# whether to color invasive/introduced/whatever
+color_introduced <- FALSE
+
 # create
 expected_plotz <- datasets %>%
   map(~{
@@ -647,13 +650,18 @@ expected_plotz <- datasets %>%
             # annotate known introduced/invasive species
             mutate( 
               species = case_when(
-                show_inv[dsn] & species %in% ais$scientific_name ~ str_glue(inv_spp),
-                show_inv[dsn] & 
+                color_introduced & 
+                  show_inv[dsn] &
+                  species %in% ais$scientific_name ~
+                  str_glue(inv_spp),
+                color_introduced & 
+                  show_inv[dsn] & 
                   !expected &
                   !(species %in% ais$scientific_name) &
                   genus %in% ais$genus &
                   !(genus %in% spp$genus) ~ str_glue(inv_gen),
-                show_inv[dsn] & 
+                color_introduced & 
+                  show_inv[dsn] & 
                   !expected &
                   !(species %in% ais$scientific_name) &
                   genus %in% ais$genus &
