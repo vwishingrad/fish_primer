@@ -1,4 +1,5 @@
 # History files
+#
 .Rhistory
 .Rapp.history
 
@@ -51,4 +52,6 @@ rsconnect/
 .DS_Store
 
 # by default ignore contents of data/, except for what's added
-# data/*
+data/old
+
+van_fishes.Rmd
