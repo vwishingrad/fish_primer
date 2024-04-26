@@ -17,6 +17,10 @@ library(ggtext)
 # source utility functions
 source("util.R")
 
+# make figures directory
+fig_dir <- here("output","figures")
+dir_create(fig_dir,recurse = TRUE)
+
 # get rid of annoying '`summarise()` has grouped output by' message
 options(dplyr.summarise.inform = FALSE)
 
@@ -354,8 +358,21 @@ rel_taxon_composites <- rel_taxon_plotz %>%
   })
 
 # see them like this
-rel_taxon_composites$raw$family
-rel_taxon_composites$raw$order
+# rel_taxon_composites$raw$family
+# rel_taxon_composites$raw$order
+
+# save them
+rel_taxon_plotz %>%
+  iwalk(~{
+    r <- .y
+    .x %>% iwalk(~{
+      pl <- .y
+      .x %>% iwalk(~{
+        p <- .y
+        ggsave(path(fig_dir,str_glue("taxon_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+      })
+    })
+  })
 
 # zotu bar plots ----------------------------------------------------------
 
@@ -435,8 +452,21 @@ zotu_composites <- zotu_plotz %>%
   })
 
 # the family-level composite is ok, but the species one is overwhelmed by legend so we'll hide it
-zotu_composites$raw$family
-zotu_composites$raw$species & theme(legend.position = "none")
+# zotu_composites$raw$family
+# zotu_composites$raw$species & theme(legend.position = "none")
+
+# save them
+zotu_plotz %>%
+  iwalk(~{
+    r <- .y
+    .x %>% iwalk(~{
+      pl <- .y
+      .x %>% iwalk(~{
+        p <- .y
+        ggsave(path(fig_dir,str_glue("zotu_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+      })
+    })
+  })
 
 # box plots for diversity metrics -----------------------------------------
 
@@ -504,10 +534,25 @@ div_plotz <- datasets %>%
   })
 
 # plot true shannon across the three datasets for the unrarefied datasets
-div_plotz$raw$sharkpen$true_shannon +
-  div_plotz$raw$aquarium$true_shannon +
-  div_plotz$raw$mock$true_shannon +
-  plot_layout(axis_titles = "collect") 
+# div_plotz$raw$sharkpen$true_shannon +
+  # div_plotz$raw$aquarium$true_shannon +
+  # div_plotz$raw$mock$true_shannon +
+  # plot_layout(axis_titles = "collect") 
+
+
+# save them
+div_plotz %>%
+  iwalk(~{
+    r <- .y
+    .x %>% iwalk(~{
+      p <- .y
+      .x %>%
+        iwalk(~{
+          d <- .y
+          ggsave(path(fig_dir,str_glue("diversity_{p}_{d}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+        })
+    })
+  })
 
 # zotu intersections (upset plots) ----------------------------------------
 
@@ -549,7 +594,23 @@ upset_plotz <- datasets %>%
   })
 
 # show upset plots for family and zotu in the unrarefied mock community
-upset_plotz$raw$mock$zotu / upset_plotz$raw$mock$family
+# upset_plotz$raw$mock$zotu / upset_plotz$raw$mock$family
+
+# save them
+upset_plotz %>%
+  iwalk(~{
+    r <- .y
+    .x %>%
+      iwalk(~{
+        p <- .y
+        .x %>%
+          iwalk(~{
+            pl <- .y
+            ggsave(path(fig_dir,str_glue("upset_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+          })
+      })
+  })
+
 
 
 # expected vs unexpected species detections -------------------------------
@@ -574,13 +635,13 @@ show_all <- c(
 # hacky little config map to say whether we want to see invasive/introduced species
 # (of course we don't care about this for the aquarium dataset)
 show_inv <- c(
-  mock = TRUE,
+  mock = FALSE,
   aquarium = FALSE,
   sharkpen = TRUE
 )
 
 # whether to color invasive/introduced/whatever
-color_introduced <- FALSE
+color_introduced <- TRUE
 
 # create
 expected_plotz <- datasets %>%
@@ -611,9 +672,9 @@ expected_plotz <- datasets %>%
             pivot_wider(names_from="marker",values_from=reads,values_fn=~.x > 0,values_fill=FALSE) 
           
           # glue text for invasive species/genera
-          inv_spp <- '<span style="color: #803342FF">**{species}**</span>'
-          inv_gen <- '<span style="color: #D89873FF">**{species}**</span>'
-          nat_gen <- '<span style="color: #D3D5AEFF">**{species}**</span>'
+          inv_spp <- '<span style="color: #C1666B">**{species}**</span>'
+          inv_gen <- '<span style="color: #D4B483">**{species}**</span>'
+          nat_gen <- '<span style="color: #4357AD">**{species}**</span>'
           # join everything together into the expected/unexpected table
           ss <- spp %>%
             # keep only family to species
@@ -712,11 +773,21 @@ expected_plotz <- datasets %>%
   })
 
 # show a couple example plots
-expected_plotz$raw$mock
-expected_plotz$raw$aquarium
-expected_plotz$raw$sharkpen
+# expected_plotz$raw$mock
+# expected_plotz$raw$aquarium
+# expected_plotz$raw$sharkpen
 
-# community multivariate statistics ---------------------------------------
+# save expected plot figures
+expected_plotz %>%
+  iwalk(~{
+    r <- .y
+    .x %>% iwalk(~{
+      p <- .y
+      ggsave(path(fig_dir,str_glue("expected_{p}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+    })
+  })
+
+# community multivariate statistics and pcoa plots ------------------------
 
 community_stats <- datasets %>%
   map(~{
@@ -754,8 +825,6 @@ community_stats <- datasets %>%
       })
   })
 
-# pcoa plots --------------------------------------------------------------
-#(make sure you run the previous code section first)
 # map through permdisp objects
 pcoa_plotz <- community_stats %>%
   imap(~{
@@ -805,14 +874,27 @@ pcoa_composites <- pcoa_plotz %>%
   })
 
 # show plots, smashing together similar legends
-pcoa_composites$raw + plot_layout(guides="collect")
-pcoa_composites$rarefied + plot_layout(guides="collect")
+# pcoa_composites$raw + plot_layout(guides="collect")
+# pcoa_composites$rarefied + plot_layout(guides="collect")
+
+# save them
+pcoa_plotz %>%
+  iwalk(~{
+    r <- .y
+    .x %>%
+      iwalk(~{
+        p <- .y
+        ggsave(path(fig_dir,str_glue("pcoa_{p}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+      })
+  })
 
 
 
 # cluster plots -----------------------------------------------------------
 
 # use previously-calculated distance matrices do do cluster plots
+# this'll spit some warnings because the new ggplot.ggdendro uses some
+# old-style code
 cluster_plotz <- community_stats %>%
   imap(~{
     ds <- .y
@@ -854,7 +936,7 @@ ward_composite <- cluster_plotz %>%
       imap(~.x$ward + labs(title=title_map[.y])) %>%
       reduce(`+`)
   })
-ward_composite$raw
+# ward_composite$raw
 
 
 # make composites of the upgma clusters
@@ -864,4 +946,20 @@ upgma_composite <- cluster_plotz %>%
       imap(~.x$upgma + labs(title=title_map[.y])) %>%
       reduce(`+`)
   })
-upgma_composite$raw
+# upgma_composite$raw
+
+
+# save them
+cluster_plotz %>%
+  iwalk(~{
+    r <- .y
+    .x %>%
+      iwalk(~{
+        p <- .y
+        .x %>%
+          iwalk(~{
+            pl <- .y
+            ggsave(path(fig_dir,str_glue("cluster_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+          })
+      })
+  })
