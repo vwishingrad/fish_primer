@@ -9,6 +9,7 @@ library(paletteer)
 library(httr)
 library(EcolUtils)
 library(dendextend)
+library(ggtext)
 
 
 # setup -------------------------------------------------------------------
@@ -554,7 +555,13 @@ upset_plotz$raw$mock$zotu / upset_plotz$raw$mock$family
 # expected vs unexpected species detections -------------------------------
 
 # get ncbi ranked lineage dump
-lineage <- get_lineage(path(data_dir,"rankedlineage.dmp"))
+# filter it down to just bony & cartilagenous fishes for bit faster joining down below
+lineage <- get_lineage(path(data_dir,"rankedlineage.dmp")) %>%
+  filter(class %in% c("Actinopteri","Chondrichthyes"))
+
+
+# load known invasive/introduced species
+ais <- read_csv(path(data_dir,"ais.csv"))
 
 # hacky little config map to say whether we want to see ALL possible expected species in the figure (or not)
 # this is done so that the sharkpen figure doesn't show ~1200 speces in the 'expected' column
@@ -562,6 +569,14 @@ show_all <- c(
   mock = TRUE,
   aquarium = TRUE,
   sharkpen = FALSE
+)
+
+# hacky little config map to say whether we want to see invasive/introduced species
+# (of course we don't care about this for the aquarium dataset)
+show_inv <- c(
+  mock = TRUE,
+  aquarium = FALSE,
+  sharkpen = TRUE
 )
 
 # create
@@ -573,49 +588,79 @@ expected_plotz <- datasets %>%
         dsn <- .y
         if (file_exists(path(data_dir,str_glue("{dsn}_species.csv")))) {
           # read expected species from file and join in lineage info from ncbi taxonomy
+          # we use the lineage info to sort by family in addition to genus/species
           spp <- read_csv(path(data_dir,str_glue("{dsn}_species.csv")),col_types=cols()) %>%
             left_join(lineage,by=c("species" = "taxon")) %>%
             select(domain:genus,species) %>%
             arrange(across(domain:species))
-          # get rid of unidentified things and collapse by species
+          
+          # prepare list of detected species
           sp_id <- ds %>%
+            # drop unidentified things
             filter(species != "unidentified") %>%
+            # group by marker and species
             group_by(marker,across(domain:species)) %>%
             summarise(reads = sum(reads)) %>%
-            ungroup()   
-          # create list of marker names to use with bind_cols below
-          marker_cols <- markers %>%
-            set_names() %>%
-            map(~NA)
-          # list of taxonomy names for bind_cols below
-          tax_cols <- spp %>%
-            select(domain:genus) %>%
-            names() %>%
-            set_names() %>%
-            map(~NA_character_)
+            ungroup() %>%
+            # keep only family to species
+            select(-c(domain:order)) %>%
+            # switch to wide (marker x detected)
+            pivot_wider(names_from="marker",values_from=reads,values_fn=~.x > 0,values_fill=FALSE) 
+          
+          # glue text for invasive species/genera
+          inv_spp <- '<span style="color: #803342FF">**{species}**</span>'
+          inv_gen <- '<span style="color: #D89873FF">**{species}**</span>'
+          nat_gen <- '<span style="color: #D3D5AEFF">**{species}**</span>'
           # join everything together into the expected/unexpected table
           ss <- spp %>%
-            # first set all known species to expected
+            # keep only family to species
+            select(-c(domain:order)) %>%
+            # first set all expected species to expected
             mutate(expected = TRUE) %>%
-            # join in all the species we actually detected
-            full_join(sp_id %>% distinct(across(domain:species)),by="species") %>%
-            # the join will produce two versions of each level  down to genus (e.g., domain.x and domain.y)
-            # here we add back the columns without suffixes
-            bind_cols(tax_cols) %>%
-            # now we set those taxonomy columns to whichever version (.x or .y) isn't NA
-            # `coalesce` is the function that does this, and `coacross` is a wrapper that allows
-            # us to use it in `across`
-            mutate( across( all_of(names(tax_cols)), ~coacross(starts_with(cur_column())) ) ) %>%
-            # get rid of the .x and .y variants of each taxonomic level
-            select(-ends_with(".x"),-ends_with(".y")) %>%
-            # any NA expected value is an unexpected species
-            mutate(expected = replace_na(expected,FALSE)) %>%
-            # add individual marker columns
-            bind_cols(marker_cols) %>%
-            # now get detections for each individual marker
-            mutate( across( all_of(markers), ~species %in% (sp_id %>% filter(marker == cur_column()) %>% pull(species)) ) ) %>%
-            # select columns into correct order
-            select(domain,kingdom,phylum,class,order,family,genus,species,expected,everything()) %>%
+            # join in species we actually detected
+            full_join(sp_id,by=c("family","genus","species")) %>%
+            mutate(
+              # any NA expected value is an unexpected species
+              expected = replace_na(expected,FALSE),
+              # any NA marker value is a negative detection
+              across(any_of(markers),~replace_na(.x,FALSE))
+            ) %>%
+            # were there detections for any marker?
+            mutate(`Any marker` = rowSums(pick(any_of(markers))) > 0) %>%
+            # get rid of undetected taxa, if that's what we want to do
+            filter(show_all[dsn] | `Any marker`) %>%
+            # drop the any 'marker' if we're not showing everything
+            { if(!show_all[dsn]) select(.,-`Any marker`) else . } %>%
+            # switch to long format
+            pivot_longer(-c(family:expected),names_to="marker",values_to="present")  %>%
+            # drop markers with zero detections
+            group_by(marker) %>%
+            filter(sum(present) > 0) %>%
+            ungroup() %>%
+            # filter out unexpected 'Any' markers
+            filter(!(!expected & marker == "Any marker")) %>%
+            # create columns for plotting
+            mutate( exp = if_else(expected,"Expected species","Unexpected species") ) %>%
+            # smash together marker and present true/false
+            unite("clr",marker,present,remove = FALSE) %>%
+            { if(show_all[dsn]) mutate(.,marker = fct_relevel(marker,"Any marker",after=Inf)) else . } %>%
+            # annotate known introduced/invasive species
+            mutate( 
+              species = case_when(
+                show_inv[dsn] & species %in% ais$scientific_name ~ str_glue(inv_spp),
+                show_inv[dsn] & 
+                  !expected &
+                  !(species %in% ais$scientific_name) &
+                  genus %in% ais$genus &
+                  !(genus %in% spp$genus) ~ str_glue(inv_gen),
+                show_inv[dsn] & 
+                  !expected &
+                  !(species %in% ais$scientific_name) &
+                  genus %in% ais$genus &
+                  genus %in% spp$genus ~ str_glue(nat_gen),
+                .default = species
+              )
+            ) %>%
             # sort by expected and taxonomy
             arrange(desc(expected),across(family:species)) %>%
             # add row number to sort species names
@@ -623,36 +668,15 @@ expected_plotz <- datasets %>%
             # order species names as factor levels so they display in the order we want
             mutate(species = fct_reorder(species,-n)) %>%
             # get rid of temp column
-            select(-n)  %>%
-            # sum detections across markers
-            mutate(Any = rowSums(pick(any_of(markers))) > 0) %>%
-            # get rid of undetected taxa, if that's what we want to do
-            filter(show_all[dsn] | Any) %>%
-            # drop the any 'marker' if we're not showing everything
-            { if(!show_all[dsn]) select(.,-Any) else . } %>%
-            # switch to long format
-            pivot_longer(-c(domain:expected),names_to="marker",values_to="present")  %>%
-            # drop markers with zero detections
-            group_by(marker) %>%
-            mutate(marker_sum = sum(present)) %>%
-            ungroup() %>% 
-            filter(marker_sum > 0) %>%
-            select(-marker_sum) %>%
-            # filter out unexpected 'Any' markers
-            filter(!(!expected & marker == "Any")) %>%
-            # create columns for plotting
-            mutate( exp = if_else(expected,"Expected species","Unexpected species") ) %>%
-            # smash together marker and present true/false
-            unite("clr",marker,present,remove = FALSE) %>%
-            mutate(marker = fct_relevel(marker,"Any",after=Inf)) %>%
-            suppressWarnings()
+            select(-n)  
           
           # make a color palette so that each present marker gets its own
           # color, but all absent markers are just white
           mp <- c(
-            c(marker_pal,"black") %>% set_names(c(str_c(names(marker_pal),"_TRUE"),"Any_TRUE")),
-            rep("white",7) %>% set_names(str_c(c(markers,"Any"),"_FALSE"))
+            c(marker_pal,"black") %>% set_names(c(str_c(names(marker_pal),"_TRUE"),"Any marker_TRUE")),
+            rep("white",7) %>% set_names(str_c(c(markers,"Any marker"),"_FALSE"))
           )
+          
           
           # do plot
           ggplot(ss) + 
@@ -671,7 +695,8 @@ expected_plotz <- datasets %>%
             theme(
               strip.background = element_rect(fill="#eeeeee"),
               strip.text = element_text(face = "bold"),
-              axis.title = element_blank()
+              axis.title = element_blank(),
+              axis.text.y = element_markdown()
             ) + 
             labs(title=title_map[dsn])
         }
