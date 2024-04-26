@@ -556,6 +556,14 @@ upset_plotz$raw$mock$zotu / upset_plotz$raw$mock$family
 # get ncbi ranked lineage dump
 lineage <- get_lineage(path(data_dir,"rankedlineage.dmp"))
 
+# hacky little config map to say whether we want to see ALL possible expected species in the figure (or not)
+# this is done so that the sharkpen figure doesn't show ~1200 speces in the 'expected' column
+show_all <- c(
+  mock = TRUE,
+  aquarium = TRUE,
+  sharkpen = FALSE
+)
+
 # create
 expected_plotz <- datasets %>%
   map(~{
@@ -616,17 +624,34 @@ expected_plotz <- datasets %>%
             mutate(species = fct_reorder(species,-n)) %>%
             # get rid of temp column
             select(-n)  %>%
+            # sum detections across markers
+            mutate(Any = rowSums(pick(any_of(markers))) > 0) %>%
+            # get rid of undetected taxa, if that's what we want to do
+            filter(show_all[dsn] | Any) %>%
+            # drop the any 'marker' if we're not showing everything
+            { if(!show_all[dsn]) select(.,-Any) else . } %>%
             # switch to long format
             pivot_longer(-c(domain:expected),names_to="marker",values_to="present")  %>%
+            # drop markers with zero detections
+            group_by(marker) %>%
+            mutate(marker_sum = sum(present)) %>%
+            ungroup() %>% 
+            filter(marker_sum > 0) %>%
+            select(-marker_sum) %>%
+            # filter out unexpected 'Any' markers
+            filter(!(!expected & marker == "Any")) %>%
             # create columns for plotting
             mutate( exp = if_else(expected,"Expected species","Unexpected species") ) %>%
             # smash together marker and present true/false
-            unite("clr",marker,present,remove = FALSE)
+            unite("clr",marker,present,remove = FALSE) %>%
+            mutate(marker = fct_relevel(marker,"Any",after=Inf)) %>%
+            suppressWarnings()
+          
           # make a color palette so that each present marker gets its own
           # color, but all absent markers are just white
           mp <- c(
-            marker_pal %>% set_names(str_c(names(marker_pal),"_TRUE")),
-            rep("white",6) %>% set_names(str_c(markers,"_FALSE"))
+            c(marker_pal,"black") %>% set_names(c(str_c(names(marker_pal),"_TRUE"),"Any_TRUE")),
+            rep("white",7) %>% set_names(str_c(c(markers,"Any"),"_FALSE"))
           )
           
           # do plot
@@ -656,6 +681,7 @@ expected_plotz <- datasets %>%
 # show a couple example plots
 expected_plotz$raw$mock
 expected_plotz$raw$aquarium
+expected_plotz$raw$sharkpen
 
 # community multivariate statistics ---------------------------------------
 
