@@ -126,7 +126,7 @@ upset_plot <- function(dataset, name_column, data_columns, dot_size = 6, line_si
       limits=rev(sets)
     ) +
     scale_y_reverse(
-      labels=scales::format_format(big.mark = ",", decimal.mark = ".", scientific = FALSE, digits=0),
+      labels=scales::label_number(big.mark=",",decimal.mark=".",accuracy=1),
       expand = expansion(mult = c(0.6, 0))
     ) +
     coord_flip() +
