@@ -415,8 +415,10 @@ zotu_plotz <- datasets %>%
             # calculate relative zotu abundance (not read abundance)
             # for marker and plot level
             dd <- .x %>%
+              filter(reads > 0) %>%
               filter(!filter_unid | .data[[pl]] != "unidentified") %>%
-              count(marker,across(all_of(pl))) %>%
+              group_by(marker,across(all_of(pl))) %>%
+              summarise(n = n_distinct(zotu)) %>%
               group_by(marker) %>%
               mutate(rel = n / sum(n)) %>%
               ungroup()
