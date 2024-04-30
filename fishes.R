@@ -327,7 +327,7 @@ rel_taxon_plotz <- datasets %>%
             ggplot(dd) + 
               geom_col(aes(x=marker,y=rel,fill=.data[[pl]])) +
               scale_x_discrete(drop = TRUE) +
-              scale_y_continuous(expand = c(0, 0), limits = c(0,1) )+
+              scale_y_continuous(expand = c(0, 0), limits = c(0,1.01) )+
               scale_fill_manual(values=pal,drop=FALSE,name=str_to_sentence(pl)) + 
               theme_bw() +
               theme(panel.grid.major = element_blank(), 
