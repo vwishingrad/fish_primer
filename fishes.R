@@ -14,6 +14,9 @@ library(ggtext)
 
 # setup -------------------------------------------------------------------
 
+# whether to save to pdf all the time
+save_pdf <- FALSE
+
 # source utility functions
 source("util.R")
 
@@ -323,9 +326,9 @@ rel_taxon_plotz <- datasets %>%
             # do plotting
             ggplot(dd) + 
               geom_col(aes(x=marker,y=rel,fill=.data[[pl]])) +
-              scale_x_discrete(drop = FALSE) +
+              scale_x_discrete(drop = TRUE) +
               scale_y_continuous(expand = c(0, 0), limits = c(0,1) )+
-              scale_fill_manual(values=pal,drop=FALSE) + 
+              scale_fill_manual(values=pal,drop=FALSE,name=str_to_sentence(pl)) + 
               theme_bw() +
               theme(panel.grid.major = element_blank(), 
                     panel.grid.minor = element_blank(),
@@ -335,7 +338,7 @@ rel_taxon_plotz <- datasets %>%
                     axis.title.y = element_text(size=14),
                     axis.line.x = element_line(color="black", linewidth = .5),
                     axis.line.y = element_line(color="black", linewidth = .5)) +
-              labs(title=title_map[nn])
+              labs(title=title_map[nn],y=str_glue("Relative {pl} abundance"),x="Marker")
           })
       }) 
   })
@@ -362,17 +365,19 @@ rel_taxon_composites <- rel_taxon_plotz %>%
 # rel_taxon_composites$raw$order
 
 # save them
-rel_taxon_plotz %>%
-  iwalk(~{
-    r <- .y
-    .x %>% iwalk(~{
-      pl <- .y
+if (save_pdf) {
+  rel_taxon_plotz %>%
+    iwalk(~{
+      r <- .y
       .x %>% iwalk(~{
-        p <- .y
-        ggsave(path(fig_dir,str_glue("taxon_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+        pl <- .y
+        .x %>% iwalk(~{
+          p <- .y
+          ggsave(path(fig_dir,str_glue("taxon_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+        })
       })
     })
-  })
+}
 
 # zotu bar plots ----------------------------------------------------------
 
@@ -420,7 +425,7 @@ zotu_plotz <- datasets %>%
             # do plotting
             ggplot(dd) + 
               geom_col(aes(x=marker,y=rel,fill=.data[[pl]])) + 
-              scale_fill_manual(values=pal) + 
+              scale_fill_manual(values=pal,name=str_to_sentence(pl)) + 
               theme_bw() +
               theme(
                 panel.grid.major = element_blank(),
@@ -434,7 +439,7 @@ zotu_plotz <- datasets %>%
                 legend.key.size = unit(1.2, "lines"),  # Adjust the legend key size here
                 legend.text = element_text(size = 14)   # Adjust the legend text size here
               ) +
-              labs(title=title_map[nn])
+              labs(title=title_map[nn],y="zOTUs",x="Marker")
           })
       })
   })
@@ -456,17 +461,75 @@ zotu_composites <- zotu_plotz %>%
 # zotu_composites$raw$species & theme(legend.position = "none")
 
 # save them
-zotu_plotz %>%
-  iwalk(~{
-    r <- .y
-    .x %>% iwalk(~{
-      pl <- .y
+if (save_pdf) {
+  zotu_plotz %>%
+    iwalk(~{
+      r <- .y
       .x %>% iwalk(~{
-        p <- .y
-        ggsave(path(fig_dir,str_glue("zotu_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+        pl <- .y
+        .x %>% iwalk(~{
+          p <- .y
+          ggsave(path(fig_dir,str_glue("zotu_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+        })
       })
     })
+}
+
+
+# relative zotu abundance heatmaps ----------------------------------------
+
+# plot zotus by taxonomic level
+plot_levels <- c("family","species")
+
+rel_zotu_plotz <- datasets %>%
+  map(~{
+    dataset <- .x
+    plot_levels %>%
+      set_names() %>%
+      map(~{
+        pl <- .x
+        dataset %>%
+          imap(~{
+            dsn <- .y
+            dd <- .x %>%
+              filter(!filter_unid | .data[[pl]] != "unidentified") %>%
+              # recalculate rel in case we've filtered out unidentified things
+              group_by(marker) %>%
+              mutate(rel = reads/sum(reads)) %>%
+              ungroup() %>% 
+              # sum rel for marker and plot level
+              group_by(marker,across(all_of(pl))) %>%
+              summarise(rel = sum(rel), reads = sum(reads)) %>%
+              ungroup() %>%
+              pivot_wider(id_cols=-reads,names_from = "marker", values_from = "rel", values_fill = 0) %>%
+              pivot_longer(any_of(markers),names_to = "marker", values_to = "rel") %>%
+              # mutate("{pl}" := fct_relevel(.data[[pl]],"unidentified",after=Inf)) %>%
+              mutate("{pl}" := fct_relevel(.data[[pl]],"unidentified")) %>%
+              suppressWarnings()
+            
+            ggplot(dd) + 
+              geom_tile(aes(x=marker,y=.data[[pl]],fill=rel),color="black") + 
+              scale_fill_paletteer_c("viridis::cividis")  +
+              scale_y_discrete(limits=rev) + 
+              labs(title=title_map[[dsn]],x="Marker",y=str_to_sentence(pl))
+          })
+      })
   })
+
+# save to pdfs
+if (save_pdf) {
+  rel_zotu_plotz %>%
+    iwalk(~{
+      r <- .y
+      .x %>% iwalk(~{
+        pl <- .y
+        .x %>% iwalk(~{
+          p <- .y
+          ggsave(path(fig_dir,str_glue("rel_zotu_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+        })
+      })
+    })
+}
 
 # box plots for diversity metrics -----------------------------------------
 
@@ -541,18 +604,20 @@ div_plotz <- datasets %>%
 
 
 # save them
-div_plotz %>%
-  iwalk(~{
-    r <- .y
-    .x %>% iwalk(~{
-      p <- .y
-      .x %>%
-        iwalk(~{
-          d <- .y
-          ggsave(path(fig_dir,str_glue("diversity_{p}_{d}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
-        })
+if (save_pdf) {
+  div_plotz %>%
+    iwalk(~{
+      r <- .y
+      .x %>% iwalk(~{
+        p <- .y
+        .x %>%
+          iwalk(~{
+            d <- .y
+            ggsave(path(fig_dir,str_glue("diversity_{p}_{d}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+          })
+      })
     })
-  })
+}
 
 # zotu intersections (upset plots) ----------------------------------------
 
@@ -598,19 +663,21 @@ upset_plotz <- datasets %>%
 
 # save them
 
-upset_plotz %>%
-  iwalk(~{
-    r <- .y
-    .x %>%
-      iwalk(~{
-        p <- .y
-        .x %>%
-          iwalk(~{
-            pl <- .y
-            ggsave(path(fig_dir,str_glue("upset_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
-          })
-      })
-  })
+if (save_pdf) {
+  upset_plotz %>%
+    iwalk(~{
+      r <- .y
+      .x %>%
+        iwalk(~{
+          p <- .y
+          .x %>%
+            iwalk(~{
+              pl <- .y
+              ggsave(path(fig_dir,str_glue("upset_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+            })
+        })
+    })
+}
 
 
 
@@ -644,6 +711,9 @@ show_inv <- c(
 # whether to color invasive/introduced/whatever
 color_introduced <- TRUE
 
+# whether to do point or tile
+tile <- TRUE
+
 # create
 expected_plotz <- datasets %>%
   map(~{
@@ -673,9 +743,12 @@ expected_plotz <- datasets %>%
             pivot_wider(names_from="marker",values_from=reads,values_fn=~.x > 0,values_fill=FALSE) 
           
           # glue text for invasive species/genera
-          inv_spp <- '<span style="color: #C1666B">**{species}**</span>'
-          inv_gen <- '<span style="color: #D4B483">**{species}**</span>'
-          nat_gen <- '<span style="color: #4357AD">**{species}**</span>'
+          inv_spp <- '{species}<sup>**†**</sup>'
+          inv_gen <- '{species}<sup>**‡**</sup>'
+          nat_gen <- '{species}<sup>**\\***</sup>'
+          # inv_spp <- '<span style="color: #C1666B">**{species}**</span>'
+          # inv_gen <- '<span style="color: #D4B483">**{species}**</span>'
+          # nat_gen <- '<span style="color: #4357AD">**{species}**</span>'
           # join everything together into the expected/unexpected table
           ss <- spp %>%
             # keep only family to species
@@ -751,9 +824,7 @@ expected_plotz <- datasets %>%
           # do plot
           ggplot(ss) + 
             # points for presesence/absence of species x marker
-            geom_point(aes(x=marker,y=species,fill=clr,size=exp),shape=21,color="black") +
-            # size them in a weird way
-            scale_size_discrete(guide="none") + 
+            { if (tile) geom_tile(aes(x=marker,y=species,fill=clr),color="black") else geom_point(aes(x=marker,y=species,fill=clr),shape=21,color="black",size=2.5) } +
             # fill them by marker color
             scale_fill_manual(values=mp,guide="none",na.value = "white") + 
             # put the x axis labels on top
@@ -779,14 +850,16 @@ expected_plotz <- datasets %>%
 # expected_plotz$raw$sharkpen
 
 # save expected plot figures
-expected_plotz %>%
-  iwalk(~{
-    r <- .y
-    .x %>% iwalk(~{
-      p <- .y
-      ggsave(path(fig_dir,str_glue("expected_{p}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+if (save_pdf) {
+  expected_plotz %>%
+    iwalk(~{
+      r <- .y
+      .x %>% iwalk(~{
+        p <- .y
+        ggsave(path(fig_dir,str_glue("expected_{p}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+      })
     })
-  })
+}
 
 # community multivariate statistics and pcoa plots ------------------------
 
@@ -879,15 +952,17 @@ pcoa_composites <- pcoa_plotz %>%
 # pcoa_composites$rarefied + plot_layout(guides="collect")
 
 # save them
-pcoa_plotz %>%
-  iwalk(~{
-    r <- .y
-    .x %>%
-      iwalk(~{
-        p <- .y
-        ggsave(path(fig_dir,str_glue("pcoa_{p}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
-      })
-  })
+if (save_pdf) {
+  pcoa_plotz %>%
+    iwalk(~{
+      r <- .y
+      .x %>%
+        iwalk(~{
+          p <- .y
+          ggsave(path(fig_dir,str_glue("pcoa_{p}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+        })
+    })
+}
 
 
 
@@ -951,16 +1026,18 @@ upgma_composite <- cluster_plotz %>%
 
 
 # save them
-cluster_plotz %>%
-  iwalk(~{
-    r <- .y
-    .x %>%
-      iwalk(~{
-        p <- .y
-        .x %>%
-          iwalk(~{
-            pl <- .y
-            ggsave(path(fig_dir,str_glue("cluster_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
-          })
-      })
-  })
+if (save_pdf) {
+  cluster_plotz %>%
+    iwalk(~{
+      r <- .y
+      .x %>%
+        iwalk(~{
+          p <- .y
+          .x %>%
+            iwalk(~{
+              pl <- .y
+              ggsave(path(fig_dir,str_glue("cluster_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
+            })
+        })
+    })
+}
