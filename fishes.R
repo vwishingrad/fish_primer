@@ -626,11 +626,11 @@ if (save_pdf) {
 # intersections
 # which column to show intersections for
 # for reasons, these have to be expressions rather than strings
-upset_cols <- c(expr(zotu),expr(family))
+upset_cols <- c(expr(zotu),expr(family),expr(species))
 # label map for pretty display
-ll <- c(zotu = "zOTUs", family = "families") 
+ll <- c(zotu = "zOTUs", family = "Families", species = "Species") 
 # title map
-pl <- c(zotu = "Intersections by zOTU", family = "Intersections by family")
+pl <- c(zotu = "Intersections by zOTU", family = "Intersections by family", species = "Intersections by species")
 
 upset_plotz <- datasets %>%
   map(~{
