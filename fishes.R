@@ -10,6 +10,8 @@ library(httr)
 library(EcolUtils)
 library(dendextend)
 library(ggtext)
+library(circlize)
+library(ggplotify)
 
 
 # setup -------------------------------------------------------------------
@@ -125,7 +127,7 @@ all_samples <- c()
 
 # load raw data and do some pre-filtering
 # map through markers and return a concatenated tibble
-fishes <- markers %>%
+fishes_raw <- markers %>%
   map_dfr(~{
     # save marker name into something nicer than `.x`
     marker <- .x
@@ -173,10 +175,12 @@ fishes <- markers %>%
         representative = str_glue("{marker}:{otu[1]}"),
         
         # concatenate zotus with marker name like this marker(zotu1,zotu2,zotu3,...)
-        zotus = str_glue("{marker}({str_c(otu,collapse=',')})")
+        zotus = str_glue("{marker}({str_c(otu,collapse=',')})"), 
+        zotu_count = n(),
+        marker = marker
       ) %>%
       ungroup() %>%
-      select(domain:species,representative,zotus,all_of(samples))
+      select(domain:species,marker,representative,zotus,zotu_count,all_of(samples))
   }) %>%
   # these operations are done on the fully concatenated dataset
   mutate(
@@ -184,7 +188,9 @@ fishes <- markers %>%
     across(domain:species,~replace_na(.x,"")),
     # replace NA reads with zeroes
     across(where(is.numeric),~replace_na(.x,0))
-  ) %>%
+  )
+
+fishes <- fishes_raw %>%
   # sum reads by taxon and concatenate zotus/representatives
   group_by(across(domain:species)) %>%
   summarise(
@@ -192,6 +198,7 @@ fishes <- markers %>%
     representative=str_c(representative,collapse=','),
     # concatenate zotu lists
     zotus=str_c(zotus,collapse=','),
+    total_zotu_count = sum(zotu_count),
     # sum read counts ()
     across(all_of(all_samples),nasum)
   ) %>%
@@ -1043,3 +1050,78 @@ if (save_pdf) {
         })
     })
 }
+
+
+# chord plots -------------------------------------------------------------
+# get all families for color palette
+all_families <- datasets$raw %>%
+  map_dfr(~.x %>% filter(family != "unidentified") %>% select(class,family)) %>%
+  # unlist() %>%
+  distinct(family,.keep_all = TRUE) %>%
+  arrange(class,family) 
+fish_families <- all_families %>%
+  filter(class == "Actinopteri") %>%
+  pull(family)    
+shark_families <- all_families %>%
+  filter(class == "Chondrichthyes") %>%
+  pull(family)    
+pal <- c(
+  colorRampPalette(paletteer_d("beyonce::X6"))(length(fish_families)),
+  colorRampPalette(paletteer_d("LaCroixColoR::Lime"))(length(shark_families))
+)
+names(pal) <- c(fish_families,shark_families)
+
+mp <- paletteer_d("ggthemes::Tableau_10",n=length(markers)) %>%
+  as.character() %>%
+  set_names(markers)
+
+# make_chord <- function(dd,xlim=c(-1,1),ylim=c(-1,1)) {
+make_chord <- function(dd,margin,units="") {
+  circos.clear()
+  if (units == "in") {
+    margin <- inches_h(margin)
+  }
+  circos.par(circle.margin = margin)
+  chordDiagram(dd, annotationTrack = "grid", preAllocateTracks = 1,grid.col = c(mp,pal))
+  circos.track(track.index = 1, panel.fun = function(x, y) {
+    if (CELL_META$sector.index %in% markers) {
+      circos.text(CELL_META$xcenter, CELL_META$ylim[1], CELL_META$sector.index,
+                  facing = "bending.outside", adj = c(0.5,1),cex=1)#, niceFacing = TRUE, adj = c(0, 0))
+    } else {
+      cex = if_else(CELL_META$cell.width < 2,0.6,0.8)
+      yoffs = 0#if_else(CELL_META$cell.width < 2,0.3,0)
+      circos.text(CELL_META$xcenter, CELL_META$ylim[1]+yoffs, CELL_META$sector.index,
+                  facing = "clockwise", niceFacing = TRUE, adj = c(0, 0.5),cex=cex)
+    }
+  }, bg.border = NA) #
+  circos.clear()
+}
+chord_plotz <- datasets$raw %>%
+  imap(~{
+    dsn <- .y
+    dd <<- .x %>%
+      filter(family != "unidentified") %>%
+      # distinct(marker,class,family,zotu) %>%
+      count(marker,class,family) %>%
+      # arrange(marker,family,n)
+      mutate(
+        marker = factor(marker,levels=rev(sort(markers))),
+        marker = fct_relevel(marker,"MiFish_E","MiFish_U",after=0L)
+      ) %>%
+      arrange(class,family,marker) %>%
+      select(marker,family,n) 
+    
+    first_fam <- dd$family[1]
+    last_fam <- rev(dd$family)[1]
+    
+    as.ggplot(~make_chord(dd,c(0.2,0.3,0.00001,0.02),units="in")) 
+  })
+
+chord_composite <- chord_plotz %>%
+  reduce(`+`) + 
+  plot_annotation(tag_levels="a") &
+  theme(plot.tag = element_text(face="bold"), plot.margin = margin(0,0,0,0)) 
+chord_composite
+
+ss <- dev.size()
+ggsave(path(fig_dir,"chord_composite.pdf"),chord_composite,width=ss[1],height=ss[2],units="in")

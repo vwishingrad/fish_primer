@@ -30,6 +30,14 @@
       "Hash": "b66bcd8ecbda8e7f890d73a99f09146f",
       "Requirements": []
     },
+    "GlobalOptions": {
+      "Package": "GlobalOptions",
+      "Version": "0.1.2",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "c3f7b221e60c28f5f3533d74c6fef024",
+      "Requirements": []
+    },
     "MASS": {
       "Package": "MASS",
       "Version": "7.3-60.0.1",
@@ -198,6 +206,18 @@
       "Requirements": [
         "rematch",
         "tibble"
+      ]
+    },
+    "circlize": {
+      "Package": "circlize",
+      "Version": "0.4.16",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "bf366c80e2b55a5383b4af8fa2a10b74",
+      "Requirements": [
+        "GlobalOptions",
+        "colorspace",
+        "shape"
       ]
     },
     "cli": {
@@ -491,6 +511,18 @@
         "withr"
       ]
     },
+    "ggplotify": {
+      "Package": "ggplotify",
+      "Version": "0.1.2",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "1547863db3b472cf7181973acf649f1a",
+      "Requirements": [
+        "ggplot2",
+        "gridGraphics",
+        "yulab.utils"
+      ]
+    },
     "ggtext": {
       "Package": "ggtext",
       "Version": "0.1.2",
@@ -569,6 +601,14 @@
       "Requirements": [
         "gtable"
       ]
+    },
+    "gridGraphics": {
+      "Package": "gridGraphics",
+      "Version": "0.5-1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "5b79228594f02385d4df4979284879ae",
+      "Requirements": []
     },
     "gridtext": {
       "Package": "gridtext",
@@ -1226,6 +1266,14 @@
         "stringr"
       ]
     },
+    "shape": {
+      "Package": "shape",
+      "Version": "1.4.6.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "5c47e84dc0a3ca761ae1d307889e796d",
+      "Requirements": []
+    },
     "snakecase": {
       "Package": "snakecase",
       "Version": "0.11.1",
@@ -1531,6 +1579,20 @@
       "Repository": "CRAN",
       "Hash": "29240487a071f535f5e5d5a323b7afbd",
       "Requirements": []
+    },
+    "yulab.utils": {
+      "Package": "yulab.utils",
+      "Version": "0.1.4",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "60ee2aaa179dc282e9fa7367bad76e89",
+      "Requirements": [
+        "cli",
+        "digest",
+        "fs",
+        "memoise",
+        "rlang"
+      ]
     }
   }
 }
