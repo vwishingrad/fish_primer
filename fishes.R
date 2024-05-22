@@ -19,12 +19,19 @@ library(ggplotify)
 # whether to save to pdf all the time
 save_pdf <- FALSE
 
+# prefill list of plot tags
+plot_tags <- list(str_glue("({letters})"))
+
 # source utility functions
 source("util.R")
 
 # make figures directory
 fig_dir <- here("output","figures")
 dir_create(fig_dir,recurse = TRUE)
+
+# make tables directory
+tbl_dir <- here("output","tables")
+dir_create(tbl_dir,recurse = TRUE)
 
 # get rid of annoying '`summarise()` has grouped output by' message
 options(dplyr.summarise.inform = FALSE)
@@ -72,7 +79,7 @@ min_total <- 25
 min_reads <- 10
 
 # whether to rarefy at all
-rarefy <- FALSE
+rarefy <- TRUE
 
 # number of rarefaction permutations
 rarefy_perm <- 100
@@ -134,7 +141,7 @@ all_samples <- c()
 # load raw data and do some pre-filtering
 # map through markers and return a concatenated tibble
 fishes_raw <- markers %>%
-  map_dfr(~{
+  map(~{
     # save marker name into something nicer than `.x`
     marker <- .x
     
@@ -188,6 +195,7 @@ fishes_raw <- markers %>%
       ungroup() %>%
       select(domain:species,marker,representative,zotus,zotu_count,all_of(samples))
   }) %>%
+  list_rbind() %>%
   # these operations are done on the fully concatenated dataset
   mutate(
     # replace NA taxa with blank string
@@ -197,6 +205,18 @@ fishes_raw <- markers %>%
   )
 
 fishes <- fishes_raw %>%
+  
+  # this is a convoluted way to get zeroes in the per-marker zotu count
+  select(domain:species,marker,zotu_count) %>%
+  pivot_wider(names_from = "marker",values_from="zotu_count",values_fill=0) %>%
+  pivot_longer(all_of(markers),names_to = "marker",values_to = "zotu_count") %>%
+  full_join(fishes_raw,by=c("domain","kingdom","phylum","class","order","family","genus","species","marker")) %>%
+  mutate(zotu_count = coalesce(zotu_count.x,zotu_count.y)) %>%
+  select(all_of(names(fishes_raw))) %>%
+  arrange(across(domain:species),marker) %>%
+  mutate(across(all_of(all_samples),~replace_na(.x,0))) %>%
+  replace_na(list(representative="",zotus="")) %>%
+
   # sum reads by taxon and concatenate zotus/representatives
   group_by(across(domain:species)) %>%
   summarise(
@@ -205,6 +225,7 @@ fishes <- fishes_raw %>%
     # concatenate zotu lists
     zotus=str_c(zotus,collapse=','),
     total_zotu_count = sum(zotu_count),
+    marker_zotu_count = str_c(str_glue("{marker}:{zotu_count}"),collapse=","),
     # sum read counts ()
     across(all_of(all_samples),nasum)
   ) %>%
@@ -228,7 +249,7 @@ fishes_filtered <- fishes %>%
   # replace reads below minimum threshold with zero
   mutate(across(all_of(samples),~replace(.x,which(.x < min_reads),0))) %>%
   # get rid of samples with total read counts under minimum threshold
-  select(c(domain:species,zotu,representative,zotus),where(~is.numeric(.x) && sum(.x) >= min_total)) %>%
+  select(-all_of(samples),where(~is.numeric(.x) && sum(.x) >= min_total)) %>%
   
   # here we try to get clever about how to deal with blank taxa
   # anything that's a blank between non-blanks (e.g., the missing order of pomacentrids)
@@ -283,7 +304,6 @@ fishes_filtered <- fishes %>%
   select(domain:species,everything()) %>%
   # once more, get rid of taxa with zero reads
   mutate(
-    across(domain:species,~replace(.x,which(.x == ""),"unidentified")),
     tot = rowSums(pick(matches(unlist(dataset_map))))
   ) %>%
   filter(tot > 0) %>%
@@ -310,15 +330,15 @@ datasets <- rr %>%
       map(~{
         ff <- fishes_filtered %>%
           # grab samples that match the current sample type
-          select(domain:species,zotu,matches(.x))
+          select(domain:species,contains("zotu"),matches(.x))
         # rarefy datasets if so desired
         if (rarefy) {
           # pull out taxonomy part to stick back on later
           taxonomy <- ff %>% 
-            select(zotu,domain:species) 
+            select(contains("zotu"),domain:species) 
           ff <- ff %>%
             # get only zotu and samples
-            select(-c(domain:species)) %>%
+            select(zotu,any_of(samples)) %>%
             # swap to zotu x samples wide format
             pivot_longer(-zotu,names_to="sample",values_to="reads") %>%
             pivot_wider(names_from="zotu",values_from="reads",values_fill=0) %>%
@@ -334,15 +354,15 @@ datasets <- rr %>%
             # join taxonomy back
             left_join(taxonomy,by="zotu") %>%
             # order columns correctly
-            select(domain:species,zotu,everything())
+            select(domain:species,contains("zotu"),everything())
         }
         ff %>%
           # switch to long format
-          pivot_longer(-c(domain:species,zotu),names_to="sample",values_to="reads") %>%
+          pivot_longer(-c(domain:species,contains("zotu")),names_to="sample",values_to="reads") %>%
           # join in sample metadata
           left_join(metadata,by=c("sample" = "clean_sample"),suffix=c("","_display")) %>%
           # group by zotu (which I guess it probably is by default)
-          group_by(domain,kingdom,phylum,class,order,family,genus,species,marker,type,sample,zotu) %>%
+          group_by(domain,kingdom,phylum,class,order,family,genus,species,marker,type,sample,across(contains("zotu"))) %>%
           # and sum up reads (we probably don't actually need to do this)
           summarise(reads = sum(reads)) %>%
           ungroup() %>%
@@ -354,7 +374,9 @@ datasets <- rr %>%
           filter(reads > 0) %>%
           # set blank taxa to unidentified
           mutate(
-            marker = factor(marker,levels=markers)
+            marker = factor(marker,levels=markers),
+            marker_zotu_count = str_extract(marker_zotu_count,str_glue("(?<={marker}:)[0-9]+")) %>%
+              as.numeric()
           )
       })
   })
@@ -371,8 +393,10 @@ unid_counts <- datasets %>%
       })
   })
 
+
 all_taxa <- datasets$raw %>%
-  map_dfr(~.x %>% select(domain:species)) %>%
+  map(~.x %>% select(domain:species)) %>%
+  list_rbind() %>%
   # unlist() %>%
   distinct(domain,kingdom,phylum,class,order,family,genus,species,.keep_all = TRUE) %>%
   arrange(class,family,species) 
@@ -404,6 +428,59 @@ palettes <- c("class","order","family","species") %>%
 
 
 # start here
+
+
+# generate tables ---------------------------------------------------------
+datasets$raw %>%
+  iwalk(~{
+    .x <- .x %>%
+      filter(if_all(domain:genus,~!str_detect(.x,"unidentified")) & !str_detect(species,"sp\\.$")) %>%
+      rename(Marker=marker)
+    ds <- .x %>%
+      mutate(Marker = fct_expand(Marker,"Overall")) %>%
+      group_by(Marker) %>%
+      summarise(
+        `Unique families` = n_distinct(family),
+        `Unique species` = n_distinct(zotu),
+        `zOTUs` = sum(marker_zotu_count[!duplicated(zotu)])
+      ) %>%
+      ungroup() %>%
+      rbind(
+        list(
+          Marker = "Overall",
+          `Unique families` = n_distinct(.x$family),
+          `Unique species` = n_distinct(.x$zotu),
+          `zOTUs` = sum(.x$marker_zotu_count[!duplicated(.x$zotu)]) 
+        )
+      )
+    write_csv(ds,path(tbl_dir,str_glue("{.y}_summary.csv")))
+  })
+
+datasets$raw %>%
+  imap(~{
+    .x %>%
+      rename(Marker = marker) %>%
+      mutate(Marker = fct_expand(Marker,"Overall")) %>%
+      group_by(Marker) %>%
+      summarise(
+        `Unique families` = n_distinct(family),
+        `Unique species` = n_distinct(zotu),
+        `zOTUs` = sum(marker_zotu_count[!duplicated(zotu)])
+      ) %>%
+      ungroup() %>%
+      rbind(
+        list(
+          Marker = "Overall",
+          `Unique families` = n_distinct(.x$family),
+          `Unique species` = n_distinct(.x$zotu),
+          `zOTUs` = sum(.x$marker_zotu_count[!duplicated(.x$zotu)]) 
+        )
+      ) %>%
+      mutate(`Sample type` = title_map[.y]) 
+  }) %>%
+  list_rbind() %>%
+  write_csv(path(tbl_dir,"all_summary.csv"))
+
 
 # taxon bar plots ---------------------------------------------------------
 
@@ -441,24 +518,20 @@ rel_taxon_plotz <- datasets %>%
             ggplot(dd) + 
               geom_col(aes(x=marker,y=rel,fill=.data[[pl]]),show.legend = TRUE) +
               scale_x_discrete(drop = FALSE) +
-              scale_y_continuous(expand = c(0, 0), limits = c(0,1.01) )+
+              scale_y_continuous(expand = expansion(mult=c(0.01,NA)) ) +
               scale_fill_manual(
                 values=palettes[[pl]],
                 drop=FALSE,
-                name=str_to_sentence(pl)#,
-                # guide = guide_legend(nrow=5) 
+                name=str_to_sentence(pl)
               ) + 
-              theme_bw() +
-              theme(#legend.direction = "horizontal",
-                    panel.grid.major = element_blank(), 
-                    panel.grid.minor = element_blank(),
-                    panel.background = element_blank(), 
-                    axis.text=element_text(size=12),
-                    panel.border = element_blank(),
-                    plot.margin = margin(b=0.2,unit="in"),
-                    axis.title.y = element_text(size=14),
-                    axis.line.x = element_line(color="black", linewidth = .5),
-                    axis.line.y = element_line(color="black", linewidth = .5)) +
+              theme_bw() + 
+              theme(
+                panel.border = element_blank(),
+                axis.line = element_line(color="black"),
+                panel.grid = element_blank(),
+                axis.text.x = element_text(angle=90),
+                axis.title = element_text(face="bold")
+              ) + 
               labs(y=str_glue("Relative sequence abundance"),x="Marker")
           })
       }) 
@@ -478,8 +551,8 @@ rel_taxon_composites <- rel_taxon_plotz %>%
         .x %>%
           map(~.x + theme(axis.text.x = element_text(angle=45,hjust=1))) %>%
           reduce(`/`) +
-          plot_annotation(tag_levels = "a") + 
-          plot_layout(guides = "collect",axes = "collect") 
+          plot_annotation(tag_levels = plot_tags) + 
+          plot_layout(guides="collect", axis_titles = "collect")
       })
   })
 
@@ -499,7 +572,7 @@ if (save_pdf) {
               axis.title.y = element_text(size=24),
               legend.title = element_text(size=24),
               legend.key.size = unit(26,units="pt"),
-              plot.tag = element_text(face="bold",size=30)
+              plot.tag = element_text(size=30)
             )
           ggsave(path(fig_dir,str_glue("taxon_composite_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=24,height=28,units="in")
         })
@@ -564,19 +637,15 @@ zotu_plotz <- datasets %>%
               scale_x_discrete(drop = FALSE) +
               # scale_y_continuous(expand = c(0, 0), limits = c(0,1.01) )+
               scale_fill_manual(values=palettes[[pl]],name=str_to_sentence(pl),drop=FALSE) + 
-              theme_bw() +
+              scale_y_continuous(expand = expansion(mult=c(0.01,NA)) ) +
+              theme_bw() + 
               theme(
-                panel.grid.major = element_blank(),
-                panel.grid.minor = element_blank(),
-                panel.background = element_blank(),
-                axis.text = element_text(size = 12),
                 panel.border = element_blank(),
-                axis.title.y = element_text(size = 14),
-                axis.line.x = element_line(color = "black", linewidth = 0.5),
-                axis.line.y = element_line(color = "black", linewidth = 0.5),
-                legend.key.size = unit(1.2, "lines"),  # Adjust the legend key size here
-                legend.text = element_text(size = 14)   # Adjust the legend text size here
-              ) +
+                axis.line = element_line(color="black"),
+                panel.grid = element_blank(),
+                axis.text.x = element_text(angle=90),
+                axis.title = element_text(face="bold")
+              ) + 
               labs(y="Number of unique taxa",x="Marker")
           })
       })
@@ -590,8 +659,8 @@ zotu_composites <- zotu_plotz %>%
         .x %>%
           map(~.x + theme(axis.text.x = element_text(angle=45,hjust=1))) %>%
           reduce(`/`) +
-          plot_layout(axes="collect",guides="collect") + 
-          plot_annotation(tag_levels = "a")
+          plot_layout(axis_titles ="collect",guides="collect") + 
+          plot_annotation(tag_levels = plot_tags)
       })
   })
 
@@ -611,7 +680,7 @@ if (save_pdf) {
               axis.title.y = element_text(size=24),
               legend.title = element_text(size=24),
               legend.key.size = unit(26,units="pt"),
-              plot.tag = element_text(face="bold",size=30)
+              plot.tag = element_text(size=30)
             )
           ggsave(path(fig_dir,str_glue("zotu_composite_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=24,height=28,units="in")
         })
@@ -672,7 +741,8 @@ rel_zotu_plotz <- datasets %>%
               geom_tile(aes(x=marker,y=.data[[pl]],fill=rel),color="grey8") + 
               scale_fill_paletteer_c("viridis::turbo",name="Relative\nabundance")  +
               scale_y_discrete(limits=rev) + 
-              labs(x="Marker",y=str_to_sentence(pl))
+              labs(x="Marker",y=str_to_sentence(pl)) + 
+              theme(axis.title = element_text(face="bold"))
           })
       })
   })
@@ -700,9 +770,9 @@ zotu_heats <- rel_zotu_plotz %>%
         .x %>%
           map(~.x + theme(axis.text.x = element_text(angle=45,hjust=1))) %>%
           reduce(`+`) +
-          plot_layout(axes = "collect") + 
-          plot_annotation(title="",tag_levels = "a") &
-          theme(plot.tag = element_text(face="bold",size=18))
+          plot_layout(axis_titles = "collect") + 
+          plot_annotation(title="",tag_levels = plot_tags) &
+          theme(plot.tag = element_text(size=18))
       })
   })
 
@@ -713,17 +783,6 @@ if (save_pdf) {
       .x %>%
         iwalk(~{
           pl <- .y
-          # .x <- .x &
-          #   guides(fill = guide_legend(ncol = 3)) & 
-          #   theme(
-          #     axis.text = element_text(size=20),
-          #     legend.text = element_text(size=24),
-          #     axis.title = element_text(size=24),
-          #     axis.title.y = element_text(size=24),
-          #     legend.title = element_text(size=24),
-          #     legend.key.size = unit(26,units="pt"),
-          #     plot.tag = element_text(face="bold",size=30)
-          #   )
           ggsave(path(fig_dir,str_glue("zotu_heatmap_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=18,height=8,units="in")
         })
     })
@@ -825,7 +884,7 @@ if (save_pdf) {
 # intersections
 # which column to show intersections for
 # for reasons, these have to be expressions rather than strings
-upset_cols <- c(expr(zotu),expr(family),expr(species))
+upset_cols <- c(expr(family),expr(zotu))
 # label map for pretty display
 ll <- c(zotu = "Taxa", family = "Families", species = "Species") 
 # title map
@@ -853,31 +912,36 @@ upset_plotz <- datasets %>%
                 sidebar_lab = ll[as.character(.x)], 
                 group_palette = marker_pal
               ) %>%
-              wrap_elements() +
-              labs(title=pl[as.character(.x)])
+              wrap_elements() 
           })
       })
   })
 
 # show upset plots for family and zotu in the unrarefied mock community
-upset_plotz$raw$sharkpen$zotu / upset_plotz$raw$sharkpen$family / upset_plotz$raw$sharkpen$species
-upset_plotz$raw$aquarium$zotu / upset_plotz$raw$aquarium$family / upset_plotz$raw$aquarium$species
-upset_plotz$raw$mock$zotu / upset_plotz$raw$mock$family / upset_plotz$raw$mock$species
+# upset_plotz$raw$sharkpen$family / upset_plotz$raw$sharkpen$zotu + plot_annotation(tag_levels = plot_tags)
+# upset_plotz$raw$aquarium$family / upset_plotz$raw$aquarium$zotu + plot_annotation(tag_levels = plot_tags)
+# upset_plotz$raw$mock$family / upset_plotz$raw$mock$zotu + plot_annotation(tag_levels = plot_tags)
+
+# put the plots together for each sample type
+upset_composites <- upset_plotz %>%
+  map(~{
+    .x %>%
+      map(~{
+        .x %>%
+          reduce(`/`) + 
+          plot_annotation(tag_levels = plot_tags)
+      })
+  })
 
 # save them
-
 if (save_pdf) {
-  upset_plotz %>%
+  upset_composites %>%
     iwalk(~{
       r <- .y
       .x %>%
         iwalk(~{
           p <- .y
-          .x %>%
-            iwalk(~{
-              pl <- .y
-              ggsave(path(fig_dir,str_glue("upset_{p}_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=14,height=12,units="in")
-            })
+          ggsave(path(fig_dir,str_glue("upset_{p}_{r}.pdf")),.x,device=cairo_pdf,width=15,height=11,units="in")
         })
     })
 }
@@ -1149,8 +1213,7 @@ pcoa_plotz <- community_stats %>%
           scale_fill_manual(values=marker_pal,name="Marker",drop=FALSE) +
           theme_bw() + 
           xlab(str_glue("PCoA1 ({scales::percent(axes[1],accuracy=0.1)})")) + 
-          ylab(str_glue("PCoA2 ({scales::percent(axes[2],accuracy=0.1)})")) + 
-          labs(title=title_map[dsn])
+          ylab(str_glue("PCoA2 ({scales::percent(axes[2],accuracy=0.1)})"))
       })
   })
 
@@ -1158,8 +1221,20 @@ pcoa_plotz <- community_stats %>%
 pcoa_composites <- pcoa_plotz %>%
   map(~{
     .x %>%
-      reduce(`+`)
+      reduce(`+`) + 
+      plot_layout(axes = "collect", guides = "collect") + 
+      plot_annotation(tag_levels = plot_tags) &
+      theme(plot.tag = element_text(face="bold"))
   })
+
+
+if (save_pdf) {
+  pcoa_composites %>%
+    iwalk(~{
+      r <- .y
+      ggsave(path(fig_dir,str_glue("pcoa_composite_{r}.pdf")),.x,device=cairo_pdf,width=12,height=4,units="in")
+    })
+}
 
 # show plots, smashing together similar legends
 # pcoa_composites$raw + plot_layout(guides="collect")
@@ -1319,3 +1394,162 @@ if (save_pdf) {
       ggsave(path(fig_dir,str_glue("chord_{.y}.pdf")),.x,device=cairo_pdf,width=10.5,height=10.5,units="in")
     })
 }
+
+# raw data supplemental bar plots -----------------------------------------
+
+raw_plot_data <- markers %>%
+  set_names() %>%
+  map(~{
+    # save marker name into something nicer than `.x`
+    marker <- .x
+    
+    # read marker data and filter to just chordates
+    ds <- read_tsv(path(data_dir,str_glue("{marker}_data.tsv")),col_types = cols()) %>%
+      mutate(
+        # replace "dropped" with blank string
+        across(class:species,~replace(.x,which(.x == "dropped"),"")),
+        # sum across blanks into column `blanks`
+        blanks = rowSums(pick(matches("Blank")),na.rm=TRUE),
+        # subtract blank reads from sample reads
+        across(-c(domain:seq_length,blanks),~.x-blanks),
+        # set negative reads to zero
+        across(where(is.numeric),~replace(.x,which(.x < 0),0))
+      ) %>%
+      select(-starts_with(marker),where(~is.numeric(.x) && sum(.x) > 0),-blanks) %>%
+      pivot_longer(-c(domain:seq_length),names_to = "sample",values_to="reads") %>%
+      mutate(
+        grouping = case_when(
+          domain == "Bacteria" ~ "Bacteria",
+          class == "Mammalia" ~ "Mammals",
+          class == "Chondrichthyes" ~ "Sharks & rays",
+          class == "Actinopteri" ~ "Bony fishes",
+          .default = "Other"
+        ),
+        grouping = factor(grouping,levels=c("Bacteria","Other","Mammals","Sharks & rays","Bony fishes"))
+      ) %>%
+      filter(reads > 0)  %>%
+      mutate(
+        sample_type = case_when(
+          str_detect(sample,regex(dataset_map$sharkpen,ignore_case = TRUE)) ~ "Shark pen",
+          str_detect(sample,regex(dataset_map$aquarium,ignore_case = TRUE)) ~ "Waikīkī Aquarium",
+          str_detect(sample,regex(dataset_map$mock,ignore_case = TRUE)) ~ "Mock community"
+        )
+      ) %>%
+      # group_by(sample_type,grouping) %>%
+      # mutate(total_zotus = n_distinct(OTU)) %>%
+      # ungroup() %>%
+      group_by(sample_type,sample,grouping) %>%
+      # summarise(reads = sum(reads), zotus = n_distinct(OTU), total_zotus = unique(total_zotus)) %>%
+      summarise(reads = sum(reads), zotus = n_distinct(OTU)) %>%
+      ungroup() %>%
+      group_by(sample) %>%
+      mutate(rel_reads = reads / sum(reads), rel_zotus = zotus/sum(zotus))  %>%
+      arrange(sample_type,grouping)
+  })
+
+raw_pal <- c(
+  "Bony fishes" = "#3B01FE",
+  "Sharks & rays" = "#A9A9A9",
+  "Mammals" = "#EE82EF",
+  "Bacteria" = "#ED0105",
+  "Other" = "#F2A503"
+)
+
+raw_plotz <- raw_plot_data %>%
+  map(~{
+    read_abundance <- ggplot(.x) + 
+      geom_col(aes(x=sample,y=reads,fill=grouping)) + 
+      scale_fill_manual(values = raw_pal, name = "Group") +
+      scale_y_continuous(labels=scales::comma, expand = expansion(mult=c(0.01,NA))) +
+      # facet_wrap(~sample_type,scales="free_x",strip.position = "bottom") +
+      labs(x = "",y="Abundance")
+      
+    
+    read_rel <- ggplot(.x) + 
+      geom_col(aes(x=sample,y=rel_reads,fill=grouping)) + 
+      scale_fill_manual(values = raw_pal, name = "Group") + 
+      scale_y_continuous(labels=scales::percent, expand = expansion(mult=c(0.01,NA))) +
+      # facet_wrap(~sample_type,scales="free_x",strip.position = "bottom") +
+      labs(x = "Sequence reads",y="Relative abundance") + 
+      theme(axis.title.x = element_blank())
+    
+    zotu_abundance <- ggplot(.x) + 
+      geom_col(aes(x=sample,y=zotus,fill=grouping)) + 
+      scale_fill_manual(values = raw_pal, name = "Group") + 
+      scale_y_continuous(labels=scales::comma, expand = expansion(mult=c(0.01,NA))) +
+      # facet_wrap(~sample_type,scales="free_x",strip.position = "bottom") +
+      labs(x="",y="Abundance") + 
+      theme(axis.title.x = element_blank()) 
+    
+    zotu_rel <- ggplot(.x) + 
+      geom_col(aes(x=sample,y=rel_zotus,fill=grouping)) + 
+      scale_fill_manual(values = raw_pal, name = "Group") + 
+      scale_y_continuous(labels=scales::percent, expand = expansion(mult=c(0.01,NA))) +
+      # facet_wrap(~sample_type,scales="free_x",strip.position = "bottom") +
+      labs(x="zOTUs",y="Relative abundance") 
+    
+    layout <- "
+      12
+      34
+    "
+    
+    read_abundance + zotu_abundance + read_rel + zotu_rel +
+      plot_layout(ncol = 2, guides = "collect", axis_titles = "collect") +
+      plot_annotation(tag_levels = plot_tags) &
+      facet_wrap(~sample_type,scales="free_x",strip.position = "bottom") &
+      theme_bw() & 
+      theme(
+        panel.border = element_blank(),
+        axis.line = element_line(color="black"),
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle=30, hjust=1),
+        axis.title = element_text(face="bold"),
+        strip.background = element_rect(fill=NA,color=NA)
+      )
+  })
+
+if (save_pdf) {
+  raw_plotz %>%
+    iwalk(~{
+      ggsave(path(fig_dir,str_glue("reads_zotus_{.y}.pdf")),.x,device=cairo_pdf,width=15,height=10,units="in")
+    })
+}
+
+num <- function(x,a=NULL) scales::label_comma(accuracy=a)(x)
+
+marker_summary_tables <- raw_plot_data %>%
+  map(~{
+    .x %>%
+      mutate(grp = fct_other(grouping,drop=c("Sharks & rays","Bony fishes"),other_level = "fishes")) %>%
+      group_by(sample_type,sample) %>%
+      summarise(
+        fish = sum(reads[grp == "fishes"]),
+        reads = sum(reads),
+        fish_zotus = sum(zotus[grp == "fishes"]),
+        zotus = sum(zotus),
+      ) %>%
+      ungroup() %>%
+      group_by(sample_type) %>%
+      summarise(
+        `Total reads` = num(sum(reads)),
+        `Mean reads per sample` = str_glue("{num(mean(reads))} ± {num(sd(reads))}"),
+        
+        `Total fish reads` = num(sum(fish)),
+        `Mean fish reads per sample` = str_glue("{num(mean(fish))} ± {num(sd(fish))}"),
+        
+        `Total zOTUs` = num( sum(zotus)  ),
+        `Mean zOTUs per sample` = str_glue("{num(mean(zotus))} ± {num(sd(zotus))}"),
+        
+        `Total fish zOTUs` = num( sum(fish_zotus) ),
+        `Mean fish zOTUs per sample` = str_glue("{num(mean(fish_zotus))} ± {num(sd(fish_zotus))}")
+      ) %>%
+      ungroup() %>%
+      rename(`Sample type` = sample_type)
+  })
+
+View(marker_summary_tables$Berry_16S)
+
+marker_summary_tables %>%
+  iwalk(~{
+    write_tsv(.x,path(tbl_dir,str_glue("{.y}_marker_summary.tsv")))  
+  })

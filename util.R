@@ -4,7 +4,7 @@ pairwise_adonis <- function(comm, factors, permutations = 1000, correction = "fd
   factor_combos <- combn(unique(as.character(factors)), 2)
   # map through factor combinations and run model for each pair,
   # dumping the output into a tibble
-  model_output <- map_dfr(array_branch(factor_combos,2), ~{
+  model_output <- map(array_branch(factor_combos,2), ~{
     fact <- factors[factors %in% .x]
     
     # get our factor specific community or distance matrix
@@ -32,7 +32,8 @@ pairwise_adonis <- function(comm, factors, permutations = 1000, correction = "fd
       "pseudo_f" = pseudo_f,
       "p_val" = p_val
     )
-  })
+  }) %>%
+    list_rbind()
   
   # return the results with adjusted p-values
   model_output %>%
