@@ -15,23 +15,14 @@ pairwise_adonis <- function(comm, factors, permutations = 1000, correction = "fd
       dd <- vegdist(comm[factors %in% .x,], method = method)
     }
     
-    # run the permanova model and return the results in a list
-    # to make the data frame rows
-    model <- adonis2(dd ~ fact, permutations = permutations) %>%
-      as_tibble()
-    df <- model$Df[1]
-    ss <- model$SumOfSqs[1]
-    pseudo_f <- model$F[1]
-    p_val <- model$`Pr(>F)`[1]
-    
-    list(
-      "left" = .x[1],
-      "right" = .x[2],
-      "df" = df,
-      "ss" = ss,
-      "pseudo_f" = pseudo_f,
-      "p_val" = p_val
-    )
+    # run the permanova model and return the results to make the data frame rows
+    adonis2(dd ~ fact, permutations = permutations) %>%
+      as_tibble() %>%
+      janitor::clean_names() %>%
+      slice(1) %>%
+      mutate(left = .x[1], right=.x[2]) %>%
+      rename(ss = sum_of_sqs, pseudo_f = f, p_val = pr_f) %>%
+      select(left,right,df,ss,pseudo_f,p_val)
   }) %>%
     list_rbind()
   
