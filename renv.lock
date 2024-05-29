@@ -80,6 +80,16 @@
       "Hash": "e749cae40fa9ef469b6050959517453c",
       "Requirements": []
     },
+    "RcppEigen": {
+      "Package": "RcppEigen",
+      "Version": "0.3.4.0.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "df49e3306f232ec28f1604e36a202847",
+      "Requirements": [
+        "Rcpp"
+      ]
+    },
     "askpass": {
       "Package": "askpass",
       "Version": "1.2.0",
@@ -489,6 +499,30 @@
       "Repository": "CRAN",
       "Hash": "15e9634c0fcd294799e9b2e929ed1b86",
       "Requirements": []
+    },
+    "ggforce": {
+      "Package": "ggforce",
+      "Version": "0.4.2",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "384b388bd9155468d2c851846ee69f9f",
+      "Requirements": [
+        "MASS",
+        "Rcpp",
+        "RcppEigen",
+        "cli",
+        "ggplot2",
+        "gtable",
+        "lifecycle",
+        "polyclip",
+        "rlang",
+        "scales",
+        "systemfonts",
+        "tidyselect",
+        "tweenr",
+        "vctrs",
+        "withr"
+      ]
     },
     "ggplot2": {
       "Package": "ggplot2",
@@ -999,6 +1033,14 @@
       "Hash": "bd54ba8a0a5faded999a7aab6e46b374",
       "Requirements": []
     },
+    "polyclip": {
+      "Package": "polyclip",
+      "Version": "1.10-6",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "436542aadb70675e361cf359285af7c7",
+      "Requirements": []
+    },
     "prettyunits": {
       "Package": "prettyunits",
       "Version": "1.2.0",
@@ -1447,6 +1489,20 @@
       "Hash": "be7a76845222ad20adb761f462eed3ea",
       "Requirements": [
         "xfun"
+      ]
+    },
+    "tweenr": {
+      "Package": "tweenr",
+      "Version": "2.0.3",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "82fac2b73e6a1f3874fc000aaf96d8bc",
+      "Requirements": [
+        "cpp11",
+        "farver",
+        "magrittr",
+        "rlang",
+        "vctrs"
       ]
     },
     "tzdb": {
