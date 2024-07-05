@@ -57,16 +57,16 @@ metadata <- read_csv(path(data_dir,"metadata.csv")) %>%
 
 # map of regex patterns to match the various sample types
 dataset_map <- list(
-  sharkpen = "_sp[0-9]+$",
+  mock = "_mc[0-9]+$",
   aquarium = "_wa[0-9]+$",
-  mock = "_mc[0-9]+$"
+  sharkpen = "_sp[0-9]+$"
 )
 
 # map dataset names to display titles
 title_map <- c(
-  sharkpen = "Shark pen",
+  mock = "Mock community",
   aquarium = "Waikīkī Aquarium",
-  mock = "Mock community"
+  sharkpen = "Shark pen"
 )
 
 # marker name map
@@ -134,7 +134,6 @@ data_summary <- function(x) {
 
 # shortcut to do sum(x,na.rm=TRUE)
 nasum <- function(x) sum(x,na.rm=TRUE)
-
 
 # download ncbi taxonomy
 get_lineage <- function(nlf) {
@@ -258,7 +257,6 @@ fishes <- fishes_raw %>%
 # pull out sample names
 samples <- all_samples
 
-
 # some final data wrangling and filtering
 fishes_filtered <- fishes %>%
   # create an ID column (we call it 'zotu', but it's not really a zotu)
@@ -336,7 +334,6 @@ fishes_filtered <- fishes %>%
     # order families' factor levels alphabetically by class first, then by family name
     family = fct_reorder(family,order(class)),
   )
-
 
 rr <- {if (rarefy) c(FALSE,TRUE) else c(FALSE)}
 rn <- {if (rarefy) c("raw","rarefied") else c("raw")}
@@ -448,13 +445,9 @@ palettes <- c("class","order","family","species") %>%
       set_names(c(feesh,sharks))
   })
 
-
-
 # start here --------------------------------------------------------------
 
 # this is just a placeholder space that allows us to jump here using rstudio's navigation shortcut
-
-
 
 # generate tables ---------------------------------------------------------
 
@@ -506,7 +499,9 @@ raw_seq_data <- markers %>%
       ungroup() %>%
       # get relative reads and relative zotus
       group_by(sample) %>%
-      mutate(rel_reads = reads / sum(reads), rel_zotus = zotus/sum(zotus))  %>%
+      mutate(rel_reads = reads / sum(reads), rel_zotus = zotus/sum(zotus)) %>%
+      # relevel sample types into order they are discussed
+      mutate(sample_type = factor(sample_type, levels = c("Mock community", "Waikīkī Aquarium", "Shark pen"))) %>%
       arrange(sample_type,grouping)
   })
 
@@ -560,7 +555,6 @@ reads_summary <- markers %>%
   set_names() %>%
   map(~{
     marker <- .x
-    
     read_tsv(path(data_dir,str_glue("{marker}_data.tsv")),col_types = cols()) %>%
       select(-c(domain:seq_length)) %>%
       colSums() %>%
@@ -593,7 +587,6 @@ reads_summary <- markers %>%
 
 reads_summary %>%
   write_tsv(path(tbl_dir,"reads_summary.tsv"))
-
 
 dataset_summaries <- datasets$raw %>%
   imap(~{
@@ -877,7 +870,6 @@ if (save_pdf) {
     })
 }
 
-
 # relative zotu abundance heatmaps ----------------------------------------
 
 # plot zotus by taxonomic level
@@ -1124,8 +1116,6 @@ if (save_pdf) {
     })
 }
 
-
-
 # expected vs unexpected species detections -------------------------------
 
 # load known invasive/introduced species
@@ -1265,7 +1255,6 @@ expected_plotz <- datasets %>%
             rep("white",7) %>% set_names(str_c(c(markers,"Any marker"),"_FALSE"))
           )
           
-          
           # do plot
           ggplot(ss) + 
             # points/tiles for presesence/absence of species x marker
@@ -1296,9 +1285,9 @@ expected_plotz <- datasets %>%
 
 # another hacky little map so we get the right plot sizes
 plotsizes <- list(
-  sharkpen = c(7.7,7.7),
+  mock = c(9.8,13),
   aquarium = c(7.7,7.7),
-  mock = c(9.8,10.7)
+  sharkpen = c(7.7,7.7)
 )
 
 # save expected plot figures
@@ -1312,7 +1301,6 @@ if (save_pdf) {
       })
     })
 }
-
 
 # proportion of expected taxa ---------------------------------------------
 
@@ -1496,7 +1484,6 @@ if (save_pdf) {
     })
 }
 
-
 # make pairwise permanova plots
 pairwise_plotz <- community_stats %>%
   map(~{
@@ -1558,8 +1545,6 @@ if (save_pdf) {
       ggsave(path(fig_dir,str_glue("pairwise_permanovas_{.y}.pdf")),device=cairo_pdf,width=13,height=4,units="in")
     })
 }
-
-
 
 # show plots, smashing together similar legends
 # pcoa_composites$raw + plot_layout(guides="collect")
@@ -1628,7 +1613,6 @@ ward_composite <- cluster_plotz %>%
   })
 # ward_composite$raw
 
-
 # make composites of the upgma clusters
 upgma_composite <- cluster_plotz %>% 
   map(~{
@@ -1637,7 +1621,6 @@ upgma_composite <- cluster_plotz %>%
       reduce(`+`)
   })
 # upgma_composite$raw
-
 
 # save them
 if (save_pdf) {
@@ -1655,7 +1638,6 @@ if (save_pdf) {
         })
     })
 }
-
 
 # chord plots -------------------------------------------------------------
 make_chord <- function(dd,margin,pal,units="",group=NULL) {
@@ -1679,20 +1661,14 @@ make_chord <- function(dd,margin,pal,units="",group=NULL) {
   circos.clear()
 }
 
-
 chord_plotz <- datasets$raw %>%
   imap(~{
     dsn <- .y
     dd <- .x %>%
       filter(family != "unidentified") %>%
       count(marker,class,family) %>%
-      mutate(
-        marker = factor(marker,levels=sort(markers)),
-        marker = fct_relevel(marker,"MiFish_U","MiFish_E",after=Inf)
-      ) %>%
       arrange(class,family,marker) %>%
       select(marker,family,n) 
-    
     
     mk <- dd %>%
       distinct(marker) %>%
@@ -1708,7 +1684,7 @@ chord_plotz <- datasets$raw %>%
       mutate(class = if_else(class == "Chondrichthyes","sharks","fishes"),family=as.character(family)) %>%
       deframe()
     grp <- c(mk,fm)
-    as.ggplot(function() make_chord(dd,c(0.000000001,1,0.000000001,0.000000001),c(marker_pal,palettes$family),units="in",group=grp))
+    as.ggplot(function() make_chord(dd,c(1e-9,1,1e-9,1e-9),c(marker_pal,palettes$family),units="in",group=grp))
   })
 
 # chord_plotz$mock
@@ -1719,7 +1695,6 @@ if (save_pdf) {
       ggsave(path(fig_dir,str_glue("chord_{.y}.pdf")),.x,device=cairo_pdf,width=10.5,height=10.5,units="in")
     })
 }
-
 
 # primer performance plots ------------------------------------------------
 primer_taxa_pal <- c(
@@ -1742,7 +1717,6 @@ primer_plotz <- raw_seq_data %>%
       scale_y_continuous(labels=scales::comma, expand = expansion(mult=c(0.01,NA))) +
       labs(x = "",y="Abundance")
       
-    
     read_rel <- ggplot(pd) + 
       geom_col(aes(x=sample,y=rel_reads,fill=grouping), show.legend = TRUE) + 
       scale_fill_manual(values = primer_taxa_pal, name = "Group", drop=FALSE) + 
@@ -1798,4 +1772,3 @@ rel_primer_zotu_plotz <- primer_plotz %>%
   plot_annotation(tag_levels = plot_tags) & 
   labs(x="")
 ggsave(path(fig_dir,"relative_primer_zotus.pdf"),device=cairo_pdf,rel_primer_zotu_plotz,width=10,height=11,units="in")
-
