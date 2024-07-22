@@ -102,7 +102,7 @@ filter_unid <- TRUE
 
 # how to filter unidentified taxa and factor levels
 filter_unidentified <- function(df, pl) {
-  unid = "unidentified| sp."
+  unid = "unidentified| sp\\."
   lvls = levels(df[[pl]])[grep(unid, levels(df[[pl]]))]
   filt_df = df %>%
     filter(!str_detect(.data[[pl]], unid)) %>%
@@ -609,16 +609,16 @@ dataset_summaries <- datasets$raw %>%
     ds %>%
       group_by(Marker) %>%
       summarise(
-        `Unique families` = n_distinct(family),
-        `Unique species` = n_distinct(zotu),
+        `Families` = n_distinct(family),
+        `Species` = n_distinct(zotu),
         `zOTUs` = sum(marker_zotu_count)
       ) %>%
       ungroup() %>%
       rbind(
         list(
           Marker = "All markers",
-          `Unique families` = n_distinct(ds$family),
-          `Unique species` = n_distinct(ds$zotu),
+          `Families` = n_distinct(ds$family),
+          `Species` = n_distinct(ds$zotu),
           `zOTUs` = sum(ds$marker_zotu_count)
         )
       ) %>%
@@ -638,16 +638,16 @@ all_summary <- datasets$raw %>%
     ds %>%
       group_by(Marker) %>%
       summarise(
-        `Unique families` = n_distinct(family),
-        `Unique taxa` = n_distinct(zotu),
+        `Species` = n_distinct(species[!str_detect(species, "unidentified| sp\\.")]),
+        `Families` = n_distinct(family[!str_detect(family, "unidentified")]),
         `zOTUs` = sum(marker_zotu_count)
       ) %>%
       ungroup() %>%
       rbind(
         list(
           Marker = "All markers",
-          `Unique families` = n_distinct(ds$family),
-          `Unique taxa` = n_distinct(ds$zotu),
+          `Species` = n_distinct(ds[!str_detect(ds$species, "unidentified| sp\\."),"species"]),
+          `Families` = n_distinct(ds[!str_detect(ds$family, "unidentified"),"family"]),
           `zOTUs` = sum(ds$marker_zotu_count) 
         )
       ) %>%
