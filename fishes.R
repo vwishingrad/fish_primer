@@ -100,6 +100,17 @@ rarefy_perm <- 100
 # whether to filter out unidentified taxa
 filter_unid <- TRUE
 
+# how to filter unidentified taxa and factor levels
+filter_unidentified <- function(df, pl) {
+  unid = "unidentified| sp."
+  lvls = levels(df[[pl]])[grep(unid, levels(df[[pl]]))]
+  filt_df = df %>%
+    filter(!str_detect(.data[[pl]], unid)) %>%
+    mutate("{pl}" := fct_collapse(.data[[pl]], unidentified = lvls)) %>%
+    mutate("{pl}" := fct_recode(.data[[pl]], NULL = "unidentified"))
+  return(filt_df)
+}
+
 # helper to make nice number formats
 num <- function(x,a=NULL) scales::label_comma(accuracy=a)(x)
 
@@ -670,8 +681,7 @@ rel_taxon_plotz <- datasets %>%
             nn <- .y
             # sum up relative reads for marker/plot level combos
             dd <- .x %>%
-              filter(!filter_unid | .data[[pl]] != "unidentified") %>%
-              { if (filter_unid) mutate(.,"{pl}" := fct_recode(.data[[pl]],NULL="unidentified")) else . } %>%
+              { if (filter_unid) filter_unidentified(., pl) else . } %>%
               # recalculate rel in case we've filtered out unidentified things
               group_by(marker) %>%
               mutate(rel = reads/sum(reads)) %>%
@@ -789,7 +799,7 @@ zotu_plotz <- datasets %>%
             # for marker and plot level
             dd <- .x %>%
               filter(reads > 0) %>%
-              filter(!filter_unid | .data[[pl]] != "unidentified") %>%
+              { if (filter_unid) filter_unidentified(., pl) else . } %>%
               group_by(marker,across(all_of(pl))) %>%
               summarise(n = n_distinct(zotu)) %>%
               group_by(marker) %>%
@@ -886,7 +896,7 @@ rel_zotu_plotz <- datasets %>%
           imap(~{
             dsn <- .y
             dd <- .x %>%
-              filter(!filter_unid | .data[[pl]] != "unidentified") %>%
+              { if (filter_unid) filter_unidentified(., pl) else . } %>%
               # recalculate rel in case we've filtered out unidentified things
               group_by(marker) %>%
               mutate(rel = reads/sum(reads)) %>%
@@ -1665,7 +1675,7 @@ chord_plotz <- datasets$raw %>%
   imap(~{
     dsn <- .y
     dd <- .x %>%
-      filter(family != "unidentified") %>%
+      { if (filter_unid) filter_unidentified(., "family") else . } %>%
       count(marker,class,family) %>%
       arrange(class,family,marker) %>%
       select(marker,family,n) 
