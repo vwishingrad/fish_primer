@@ -1676,10 +1676,9 @@ chord_plotz <- datasets$raw %>%
     dsn <- .y
     dd <- .x %>%
       { if (filter_unid) filter_unidentified(., "family") else . } %>%
-      count(marker,class,family) %>%
-      arrange(class,family,marker) %>%
-      select(marker,family,n) 
-    
+      select(-sample, -type) %>% distinct() %>%
+      arrange(class, family, marker) %>%
+      select(marker, family, marker_zotu_count)
     mk <- dd %>%
       distinct(marker) %>%
       pull(marker) %>%
