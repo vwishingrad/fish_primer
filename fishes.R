@@ -77,10 +77,9 @@ marker_map <- c(
   "MiFish_E 12S",
   "MiFish_U 12S",
   "Riaz 12S",
-  "All markers",
   "Any marker"
 ) %>%
-  set_names(c(markers,"All markers","Any marker"))
+  set_names(c(markers,"Any marker"))
 
 # specific taxonomic orders to filter out
 filter_orders <- c("Artiodactyla", "Carnivora", "Mammalia", "Phlebobranchia", "Stolidobranchia", "Primates")
@@ -389,9 +388,9 @@ all_taxa <- datasets$raw %>%
 # make a consistent color palette for markers
 marker_pal <- paletteer_d("ggthemes::Tableau_10",n=length(markers)) %>%
   as.character() %>%
-  append(rep("black",2)) 
+  append("black") 
 marker_pal <- marker_pal %>%
-  set_names(c(markers,"Any marker","All markers"))
+  set_names(c(markers,"Any marker"))
 
 # Let's make standardized color palettes for the various groups
 palettes <- c("class","order","family","species") %>%
@@ -860,6 +859,7 @@ expected_plotz <- datasets %>%
               exp = exp_map[[dsn]][as.integer(expected)+1]
             ) %>%
             # smash together marker and present true/false
+            mutate(., marker = marker_map[marker]) %>%
             unite("clr",marker,present,remove = FALSE) %>%
             { if(show_all[dsn]) mutate(.,marker = fct_relevel(marker,"Any marker",after=Inf)) else . } %>%
             # annotate known introduced/invasive species
@@ -890,15 +890,15 @@ expected_plotz <- datasets %>%
           
           # make a color palette so that each present marker gets its own
           # color, but all absent markers are just white
-          mp <- c(
-            c(marker_pal,"black") %>% set_names(c(str_c(names(marker_pal),"_TRUE"),"Any marker_TRUE")),
-            rep("white",7) %>% set_names(str_c(c(markers,"Any marker"),"_FALSE"))
+          mp = c(
+            marker_pal %>% set_names(str_c(marker_map, "_TRUE")),
+            rep("white",7) %>% set_names(str_c(marker_map, "_FALSE"))
           )
           
           # do plot
           ggplot(ss) + 
             # points/tiles for presence/absence of species x marker
-            { if (tile) geom_tile(aes(x=marker_map[marker],y=species,fill=clr),color="gray10") else geom_point(aes(x=marker_map[marker],y=species,fill=clr),shape=21,color="black",size=2.5) } +
+            { if (tile) geom_tile(aes(x=marker,y=species,fill=clr),color="gray10") else geom_point(aes(x=marker_map[marker],y=species,fill=clr),shape=21,color="black",size=2.5) } +
             # fill them by marker color
             scale_fill_manual(values=mp,guide="none",na.value = "white") + 
             # put the x axis labels on top
