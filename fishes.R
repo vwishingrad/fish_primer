@@ -13,7 +13,6 @@ library(ggtext)
 library(circlize)
 library(ggplotify)
 
-
 # setup -------------------------------------------------------------------
 
 # whether to save to pdf all the time
@@ -377,7 +376,6 @@ unid_counts <- datasets %>%
           nrow()
       })
   })
-
 
 all_taxa <- datasets$raw %>%
   map(~.x %>% select(domain:species)) %>%
@@ -1034,6 +1032,7 @@ community_stats <- datasets %>%
       imap(~{
         dsn <- .y
         div <- .x %>%
+          { if (filter_unid) filter_unidentified(., "species") else . } %>%
           # pull out needed columns
           select(marker,sample,zotu,reads) %>%
           # pivot to zotu x sample wide format
