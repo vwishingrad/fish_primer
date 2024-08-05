@@ -1098,33 +1098,11 @@ pcoa_plotz <- community_stats %>%
         ggplot(bb,aes(x=PCoA1,y=PCoA2,fill=marker)) + 
           geom_point(shape=21,size=4,color="black",show.legend=TRUE) + 
           scale_fill_manual(values=marker_pal %>% set_names(marker_map),name="Primer",drop=FALSE) +
-          theme_bw() + 
+          theme_bw() +
           xlab(str_glue("PCoA1 ({scales::percent(axes[1],accuracy=0.1)})")) + 
           ylab(str_glue("PCoA2 ({scales::percent(axes[2],accuracy=0.1)})"))
       })
   })
-
-# make composite figures for each major dataset (raw vs rarefied)
-pcoa_composites <- pcoa_plotz %>%
-  map(~{
-    .x %>%
-      reduce(`+`) + 
-      plot_layout(axes = "collect", guides = "collect") + 
-      plot_annotation(tag_levels = plot_tags) & 
-      theme(panel.grid = element_blank())
-  })
-
-if (save_pdf) {
-  pcoa_composites %>%
-    iwalk(~{
-      r <- .y
-      ggsave(path(fig_dir,str_glue("pcoa_composite_{r}.pdf")),.x,device=cairo_pdf,width=13,height=4,units="in")
-    })
-}
-
-# show plots, smashing together similar legends
-# pcoa_composites$raw + plot_layout(guides="collect")
-# pcoa_composites$rarefied + plot_layout(guides="collect")
 
 # chord plots -------------------------------------------------------------
 make_chord <- function(dd,margin,pal,units="",group=NULL) {
@@ -1173,13 +1151,29 @@ chord_plotz <- datasets$raw %>%
     as.ggplot(function() make_chord(dd,c(1e-9,1,1e-9,1e-9),c(marker_pal,palettes$family),units="in",group=grp))
   })
 
-# chord_plotz$mock
+chord_composite = wrap_plots(chord_plotz, ncol = 1)
+
+comp_layout = c(
+  patchwork::area(l = 1, r = 4, t = 1, b = 4),
+  patchwork::area(l = 1, r = 4, t = 5, b = 8),
+  patchwork::area(l = 1, r = 4, t = 9, b = 12),
+  patchwork::area(l = 5, r = 6, t = 2, b = 3),
+  patchwork::area(l = 5, r = 6, t = 6, b = 7),
+  patchwork::area(l = 5, r = 6, t = 10, b = 11)
+)
+
+chord_pcoa_composites <- pcoa_plotz %>%
+  map(~{
+    pcoas = map(.x, ~ . + theme(legend.position = "none"))
+    wrap_plots(c(chord_plotz, pcoas), ncol = 2, byrow = F) +
+      plot_layout(design = comp_layout) +
+      plot_annotation(tag_levels = plot_tags) & 
+      theme(panel.grid = element_blank())
+  })
 
 if (save_pdf) {
-  chord_plotz %>%
-    iwalk(~{
-      ggsave(path(fig_dir,str_glue("chord_{.y}.pdf")),.x,device=cairo_pdf,width=10.5,height=10.5,units="in")
-    })
+  chord_pcoa_composites %>%
+    iwalk(~ggsave(path(fig_dir,str_glue("chord_pcoa_composite_{.y}.pdf")),.x,device=cairo_pdf,width=12,height=22,units="in"))
 }
 
 # primer performance plots ------------------------------------------------
@@ -1192,64 +1186,38 @@ primer_taxa_pal <- c(
 )
 
 primer_plotz <- raw_seq_data %>%
-  map(~{
+  imap(~{
     pd <- .x %>%
       # get rid of blanks
-      filter(sample_type != "Blanks") 
+      filter(sample_type != "Blanks")
+    nn = .y
     
-    read_abundance <- ggplot(pd) + 
-      geom_col(aes(x=sample,y=reads,fill=grouping), show.legend = TRUE) + 
-      scale_fill_manual(values = primer_taxa_pal, name = "Group", drop=FALSE) +
-      scale_y_continuous(labels=scales::comma, expand = expansion(mult=c(0.01,NA))) +
-      labs(x = "",y="Abundance")
-      
     read_rel <- ggplot(pd) + 
       geom_col(aes(x=sample,y=rel_reads,fill=grouping), show.legend = TRUE) + 
       scale_fill_manual(values = primer_taxa_pal, name = "Group", drop=FALSE) + 
       scale_y_continuous(labels=scales::percent, expand = expansion(mult=c(0.01,NA))) +
-      labs(x = "Sequence reads",y="Relative abundance") + 
-      theme(axis.title.x = element_blank())
-    
-    zotu_abundance <- ggplot(pd) + 
-      geom_col(aes(x=sample,y=zotus,fill=grouping), show.legend = TRUE) + 
-      scale_fill_manual(values = primer_taxa_pal, name = "Group", drop=FALSE) + 
-      scale_y_continuous(labels=scales::comma, expand = expansion(mult=c(0.01,NA))) +
-      labs(x="",y="Abundance") + 
-      theme(axis.title.x = element_blank()) 
-    
-    zotu_rel <- ggplot(pd) + 
-      geom_col(aes(x=sample,y=rel_zotus,fill=grouping), show.legend = TRUE) + 
-      scale_fill_manual(values = primer_taxa_pal, name = "Group", drop=FALSE) + 
-      scale_y_continuous(labels=scales::percent, expand = expansion(mult=c(0.01,NA))) +
-      labs(x="zOTUs",y="Relative abundance") 
-    
-    layout <- "
-      12
-      34
-    "
-    
-    read_abundance + zotu_abundance + read_rel + zotu_rel +
-      plot_layout(ncol = 2, guides = "collect", axis_titles = "collect") +
-      plot_annotation(tag_levels = plot_tags) &
+      labs(subtitle = marker_map[.y], y="Relative read abundance") + 
       facet_wrap(~sample_type,scales="free_x",strip.position = "bottom") &
       theme_bw() & 
       theme(
         panel.border = element_blank(),
         axis.line = element_line(color="black"),
         panel.grid = element_blank(),
-        axis.text.x = element_text(angle=30, hjust=1),
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
         axis.title = element_text(face="bold"),
         strip.background = element_rect(fill=NA,color=NA)
       )
   })
 
-rel_primer_zotu_plotz <- primer_plotz %>%
-  map(~.x %>% pluck(4)) %>%
+primers_rel_reads_plot <- primer_plotz %>%
+  map(~.x) %>%
   reduce(`+`) + 
-  plot_layout(ncol = 2,axis_titles = "collect", guides = "collect") +
+  plot_layout(ncol = 2, axis_titles = "collect", guides = "collect") +
   plot_annotation(tag_levels = plot_tags) & 
   labs(x="")
 
 if (save_pdf) {
-  ggsave(path(fig_dir,"relative_primer_zotus.pdf"),device=cairo_pdf,rel_primer_zotu_plotz,width=10,height=11,units="in")
+  ggsave(path(fig_dir,"primer_relative_reads.pdf"),device=cairo_pdf,primers_rel_reads_plot,width=9.5,height=6.5,units="in")
 }
