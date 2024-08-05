@@ -1010,7 +1010,7 @@ proportion_expected_plotz <- datasets %>%
               axis.text.x = element_text(angle=30, hjust=1),
               axis.title = element_text(face="bold")
             ) + 
-            labs(x="Primer",y="Proportion of expected species")
+            labs(x="Primer",y="% expected species recovered")
         }
       }) %>%
       reduce(`+`) + 
@@ -1059,6 +1059,18 @@ community_stats <- datasets %>%
           permdisp = betadisper(dd,sd$marker,bias.adjust = TRUE),
           dist = dd
         )
+      })
+  })
+
+## Save permanova summary results
+community_stats %>%
+  iwalk(~{
+    r <- .y
+    .x %>%
+      iwalk(~{
+        p <- .y
+        .x$permanova %>% rownames_to_column(var = "x") %>%
+        write_tsv(path(tbl_dir,str_glue("permanova_{p}_{r}.tsv")))
       })
   })
 
@@ -1151,9 +1163,9 @@ chord_plotz <- datasets$raw %>%
   })
 
 comp_layout = c(
-  patchwork::area(l = 72, r = 96, t = 4, b = 7),
-  patchwork::area(l = 72, r = 96, t = 12, b = 15),
-  patchwork::area(l = 72, r = 96, t = 20, b = 23),
+  patchwork::area(l = 72, r = 96, t = 5, b = 7),
+  patchwork::area(l = 72, r = 96, t = 13, b = 15),
+  patchwork::area(l = 72, r = 96, t = 21, b = 23),
   patchwork::area(l = 1, r = 72, t = 1, b = 10),
   patchwork::area(l = 1, r = 72, t = 9, b = 18),
   patchwork::area(l = 1, r = 72, t = 17, b = 26)
