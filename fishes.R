@@ -1151,24 +1151,27 @@ chord_plotz <- datasets$raw %>%
     as.ggplot(function() make_chord(dd,c(1e-9,1,1e-9,1e-9),c(marker_pal,palettes$family),units="in",group=grp))
   })
 
-chord_composite = wrap_plots(chord_plotz, ncol = 1)
-
 comp_layout = c(
-  patchwork::area(l = 1, r = 4, t = 1, b = 4),
-  patchwork::area(l = 1, r = 4, t = 5, b = 8),
-  patchwork::area(l = 1, r = 4, t = 9, b = 12),
-  patchwork::area(l = 5, r = 6, t = 2, b = 3),
-  patchwork::area(l = 5, r = 6, t = 6, b = 7),
-  patchwork::area(l = 5, r = 6, t = 10, b = 11)
-)
+  patchwork::area(l = 72, r = 96, t = 4, b = 7),
+  patchwork::area(l = 72, r = 96, t = 12, b = 15),
+  patchwork::area(l = 72, r = 96, t = 20, b = 23),
+  patchwork::area(l = 1, r = 72, t = 1, b = 10),
+  patchwork::area(l = 1, r = 72, t = 9, b = 18),
+  patchwork::area(l = 1, r = 72, t = 17, b = 26)
+  )
+
+tag.positions = list("topleft", "topleft", "topleft",
+                     c(0.075,0.8), c(0.075,0.8), c(0.075,0.8))
 
 chord_pcoa_composites <- pcoa_plotz %>%
   map(~{
-    pcoas = map(.x, ~ . + theme(legend.position = "none"))
-    wrap_plots(c(chord_plotz, pcoas), ncol = 2, byrow = F) +
+    plots = map2(c(.x, chord_plotz), tag.positions, ~ .x + theme(legend.position = "none",
+                                                                 plot.tag.position = .y))
+    wrap_plots(plots, ncol = 2, byrow = F) +
       plot_layout(design = comp_layout) +
-      plot_annotation(tag_levels = plot_tags) & 
-      theme(panel.grid = element_blank())
+      plot_annotation(theme = theme(plot.margin = margin(t = -75, r = 20, b = -25)),
+                      tag_levels = list(c("(d)", "(e)", "(f)",
+                                          "(a)", "(b)", "(c)")))
   })
 
 if (save_pdf) {
