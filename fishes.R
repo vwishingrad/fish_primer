@@ -524,16 +524,16 @@ all_summary <- datasets$raw %>%
     ds %>%
       group_by(Marker) %>%
       summarise(
-        `Species` = n_distinct(species[!str_detect(species, "unidentified| sp\\.")]),
         `Families` = n_distinct(family[!str_detect(family, "unidentified")]),
+        `Species` = n_distinct(species[!str_detect(species, "unidentified| sp\\.")]),
         `zOTUs` = sum(marker_zotu_count)
       ) %>%
       ungroup() %>%
       rbind(
         list(
           Marker = "All markers",
-          `Species` = n_distinct(ds[!str_detect(ds$species, "unidentified| sp\\."),"species"]),
           `Families` = n_distinct(ds[!str_detect(ds$family, "unidentified"),"family"]),
+          `Species` = n_distinct(ds[!str_detect(ds$species, "unidentified| sp\\."),"species"]),
           `zOTUs` = sum(ds$marker_zotu_count) 
         )
       ) %>%
@@ -1171,7 +1171,7 @@ comp_layout = c(
   patchwork::area(l = 1, r = 72, t = 17, b = 26)
   )
 
-tag.positions = list("topleft", "topleft", "topleft",
+tag.positions = list(c(0,1), c(0,1), c(0,1),
                      c(0.075,0.8), c(0.075,0.8), c(0.075,0.8))
 
 chord_pcoa_composites <- pcoa_plotz %>%
@@ -1210,7 +1210,7 @@ primer_plotz <- raw_seq_data %>%
       geom_col(aes(x=sample,y=rel_reads,fill=grouping), show.legend = TRUE) + 
       scale_fill_manual(values = primer_taxa_pal, name = "Group", drop=FALSE) + 
       scale_y_continuous(labels=scales::percent, expand = expansion(mult=c(0.01,NA))) +
-      labs(subtitle = marker_map[.y], y="Relative read abundance") + 
+      labs(subtitle = marker_map[.y], y="Relative sequence abundance") + 
       facet_wrap(~sample_type,scales="free_x",strip.position = "bottom") &
       theme_bw() & 
       theme(
