@@ -58,21 +58,20 @@ metadata <- read_csv(path(data_dir,"metadata.csv")) %>%
 dataset_map <- list(
   mock = "_mc[0-9]+$",
   aquarium = "_wa[0-9]+$",
-  sharkpen = "_sp[0-9]+$"
+  lagoon = "_sp[0-9]+$"
 )
 
 # map dataset names to display titles
 title_map <- c(
   mock = "Mock community",
   aquarium = "Waikīkī Aquarium",
-  sharkpen = "Shark pen"
+  lagoon = "Lagoon"
 )
 
 # marker name map
 marker_map <- c(
   "Berry 16S",
   "Leray CO1",
-  "Martineau 28S",
   "MiFish_E 12S",
   "MiFish_U 12S",
   "Riaz 12S",
@@ -90,7 +89,7 @@ min_total <- 25
 min_reads <- 10
 
 # whether to rarefy at all
-rarefy <- TRUE
+rarefy <- FALSE
 
 # number of rarefaction permutations
 rarefy_perm <- 100
@@ -453,7 +452,7 @@ raw_seq_data <- markers %>%
       mutate(
         sample_type = case_when(
           sample == "blanks" ~ "Blanks",
-          str_detect(sample,regex(dataset_map$sharkpen,ignore_case = TRUE)) ~ "Shark pen",
+          str_detect(sample,regex(dataset_map$lagoon,ignore_case = TRUE)) ~ "Lagoon",
           str_detect(sample,regex(dataset_map$aquarium,ignore_case = TRUE)) ~ "Waikīkī Aquarium",
           str_detect(sample,regex(dataset_map$mock,ignore_case = TRUE)) ~ "Mock community"
         )
@@ -466,7 +465,7 @@ raw_seq_data <- markers %>%
       group_by(sample) %>%
       mutate(rel_reads = reads / sum(reads), rel_zotus = zotus/sum(zotus)) %>%
       # relevel sample types into order they are discussed
-      mutate(sample_type = factor(sample_type, levels = c("Mock community", "Waikīkī Aquarium", "Shark pen"))) %>%
+      mutate(sample_type = factor(sample_type, levels = c("Mock community", "Waikīkī Aquarium", "Lagoon"))) %>%
       arrange(sample_type,grouping)
   })
 
@@ -545,485 +544,7 @@ all_summary <- datasets$raw %>%
 
 write_tsv(all_summary,path(tbl_dir,"all_summary.tsv"))
 
-# taxon bar plots ---------------------------------------------------------
-
-# taxonomic levels at which to group bar plots
-plot_levels <- c("order","family")
-
-# create a list of bar plots by plot level and dataset
-rel_taxon_plotz <- datasets %>%
-  map(~{
-    dataset <- .x
-    #map through plot levels
-    plot_levels %>%
-      set_names() %>%
-      map(~{
-        # save plot level into `pl`
-        pl <- .x
-        # map through datasets
-        dataset %>%
-          imap(~{
-            # save dataset name
-            nn <- .y
-            # sum up relative reads for marker/plot level combos
-            dd <- .x %>%
-              { if (pl %in% c("class", "order")) . else filter_unidentified(., pl) } %>%
-              # recalculate rel in case we've filtered out unidentified things
-              group_by(marker) %>%
-              mutate(rel = reads/sum(reads)) %>%
-              ungroup() %>% 
-              # sum rel for marker and plot level
-              group_by(marker,across(all_of(pl))) %>%
-              summarise(rel = sum(rel)) %>%
-              ungroup() 
-            # do plotting
-            ggplot(dd) + 
-              geom_col(aes(x=marker_map[marker],y=rel,fill=.data[[pl]]),show.legend = TRUE) +
-              scale_x_discrete(drop = FALSE) +
-              scale_y_continuous(expand = expansion(mult=c(0.01,NA)) ) +
-              scale_fill_manual(
-                values=palettes[[pl]],
-                drop=FALSE,
-                name=str_to_sentence(pl)
-              ) + 
-              theme_bw() + 
-              theme(
-                panel.border = element_blank(),
-                axis.line = element_line(color="black"),
-                panel.grid = element_blank(),
-                axis.text.x = element_text(angle=90),
-                axis.title = element_text(face="bold")
-              ) + 
-              labs(y=str_glue("Relative sequence abundance"),x="Marker")
-          })
-      }) 
-  })
-
-# rel_taxon_plotz$raw$family$aquarium
-# rel_taxon_plotz$raw$family$mock
-# rel_taxon_plotz$raw$family$sharkpen
-
-# reduce all these plots to one big one using patchwork
-
-# make composite plots for each plot level
-rel_taxon_composites <- rel_taxon_plotz %>%
-  map(~{
-    .x %>%
-      imap(~{
-        .x %>%
-          map(~.x + theme(axis.text.x = element_text(angle=45,hjust=1))) %>%
-          reduce(`/`) +
-          plot_annotation(tag_levels = plot_tags) + 
-          plot_layout(guides="collect", axis_titles = "collect")
-      })
-  })
-
-if (save_pdf) {
-  rel_taxon_composites %>%
-    iwalk(~{
-      r <- .y
-      .x %>%
-        iwalk(~{
-          pl <- .y
-          .x <- .x &
-            guides(fill = guide_legend(ncol = 3)) & 
-            theme(
-              axis.text = element_text(size=20),
-              legend.text = element_text(size=24),
-              axis.title = element_text(size=24),
-              axis.title.y = element_text(size=24),
-              legend.title = element_text(size=24),
-              legend.key.size = unit(26,units="pt"),
-              plot.tag = element_text(size=30)
-            )
-          ggsave(path(fig_dir,str_glue("taxon_composite_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=24,height=28,units="in")
-        })
-    })
-}
-# see them like this
-# rel_taxon_composites$raw$family
-# rel_taxon_composites$raw$order
-
-# relative zotu abundance heatmaps ----------------------------------------
-
-# plot zotus by taxonomic level
-plot_levels <- c("order","family")
-
-rel_zotu_plotz <- datasets %>%
-  map(~{
-    dataset <- .x
-    plot_levels %>%
-      set_names() %>%
-      map(~{
-        pl <- .x
-        dataset %>%
-          imap(~{
-            dsn <- .y
-            dd <- .x %>%
-              { if (pl %in% c("class", "order")) . else filter_unidentified(., pl) } %>%
-              # recalculate rel in case we've filtered out unidentified things
-              group_by(marker) %>%
-              mutate(rel = reads/sum(reads)) %>%
-              ungroup() %>% 
-              # sum rel for marker and plot level
-              group_by(marker,across(all_of(pl))) %>%
-              summarise(rel = sum(rel), reads = sum(reads)) %>%
-              ungroup() %>%
-              pivot_wider(id_cols=-reads,names_from = "marker", values_from = "rel", values_fill = 0) %>%
-              pivot_longer(any_of(markers),names_to = "marker", values_to = "rel") %>%
-              mutate("{pl}" := fct_relevel(.data[[pl]],"unidentified")) %>%
-              suppressWarnings()
-            
-            ggplot(dd) + 
-              geom_tile(aes(x=marker_map[marker],y=.data[[pl]],fill=rel),color="grey8") + 
-              scale_fill_paletteer_c("viridis::turbo",name="Relative\nabundance")  +
-              scale_y_discrete(limits=rev) + 
-              labs(x="Marker",y=str_to_sentence(pl)) + 
-              theme(axis.title = element_text(face="bold"))
-          })
-      })
-  })
-
-# make composite plots for each
-zotu_heats <- rel_zotu_plotz %>%
-  map(~{
-    .x %>%
-      imap(~{
-        .x %>%
-          map(~.x + theme(axis.text.x = element_text(angle=45,hjust=1))) %>%
-          reduce(`+`) +
-          plot_layout(axis_titles = "collect") + 
-          plot_annotation(title="",tag_levels = plot_tags) &
-          theme(plot.tag = element_text(size=18))
-      })
-  })
-
-if (save_pdf) {
-  zotu_heats %>%
-    iwalk(~{
-      r <- .y
-      .x %>%
-        iwalk(~{
-          pl <- .y
-          ggsave(path(fig_dir,str_glue("zotu_heatmap_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=18,height=8,units="in")
-        })
-    })
-}
-
-# family intersections (upset plots) ----------------------------------------
-
-upset_plotz <- datasets %>%
-  map(~{
-    .x %>%
-      map(~{
-        ds <- .x
-        ds %>%
-          filter_unidentified(., "family") %>%
-          # create a presence/absence dataset where we pivot to wider by marker x family
-          # and summarise each occurrence as a zero or one (1 = sum(reads) > 0)
-          pivot_wider(id_cols=family, names_from="marker", values_from="reads", values_fill = 0, values_fn=~as.integer(sum(.x) > 0)) %>%
-          # plot the upset plot
-          upset_plot(
-            name_column=family,
-            data_columns=any_of(markers),
-            label_top_bars = TRUE,
-            label_side_bars = TRUE,
-            bar_lab = str_glue("Families"),
-            sidebar_lab = "Families", 
-            group_palette = marker_pal
-          ) %>%
-          wrap_elements()
-      })
-  })
-
-# show upset plots for family and zotu in the unrarefied mock community
-# upset_plotz$raw$sharkpen$family / upset_plotz$raw$sharkpen$zotu + plot_annotation(tag_levels = plot_tags)
-# upset_plotz$raw$aquarium$family / upset_plotz$raw$aquarium$zotu + plot_annotation(tag_levels = plot_tags)
-# upset_plotz$raw$mock$family / upset_plotz$raw$mock$zotu + plot_annotation(tag_levels = plot_tags)
-
-# put the plots together for each sample type
-upset_composites <- upset_plotz %>%
-  map(~{
-    reduce(.x, `/`) + plot_annotation(tag_levels = plot_tags)
-  })
-
-# save them
-if (save_pdf) {
-  upset_composites %>%
-    iwalk(~{
-      r <- .y
-      ggsave(
-        filename = file.path(fig_dir, str_glue("upset_{r}.pdf")),
-        plot = .x,
-        device = cairo_pdf,
-        width = 10,
-        height = 13,
-        units = "in"
-      )
-    })
-}
-
-# expected vs unexpected species detections -------------------------------
-
-# load known invasive/introduced species
-ais <- read_csv(path(data_dir,"ais.csv"))
-
-# hacky little config map to say whether we want to see ALL possible expected species in the figure (or not)
-# this is done so that the sharkpen figure doesn't show ~1200 speces in the 'expected' column
-show_all <- c(
-  mock = TRUE,
-  aquarium = TRUE,
-  sharkpen = FALSE
-)
-
-# hacky little config map to say whether we want to see invasive/introduced species
-# (of course we don't care about this for the aquarium dataset)
-show_inv <- c(
-  mock = FALSE,
-  aquarium = FALSE,
-  sharkpen = TRUE
-)
-
-exp_map = list(
-  sharkpen = c("Not known from Hawai‘i","Known from Hawai‘i"),
-  aquarium = c("Not known from aquarium tank","In aquarium tank"),
-  mock = c("Not in mock community","In mock community")
-)
-
-# whether to color invasive/introduced/whatever
-color_introduced <- TRUE
-
-# whether to do point or tile
-tile <- TRUE
-
-# create
-expected_plotz <- datasets %>%
-  map(~{
-    .x %>%
-      imap(~{
-        ds <- .x
-        dsn <- .y
-        if (file_exists(path(data_dir,str_glue("{dsn}_species.csv")))) {
-          # read expected species from file and join in lineage info from ncbi taxonomy
-          # we use the lineage info to sort by family in addition to genus/species
-          spp <- read_csv(path(data_dir,str_glue("{dsn}_species.csv")),col_types=cols())
-          
-          # prepare list of detected species
-          sp_id <- ds %>%
-            # drop unidentified things
-            filter_unidentified(., "species") %>%
-            # group by marker and species
-            group_by(marker,across(domain:species)) %>%
-            summarise(reads = sum(reads)) %>%
-            ungroup() %>%
-            # keep only family to species
-            select(-c(domain:order)) %>%
-            # switch to wide (marker x detected)
-            pivot_wider(names_from="marker",values_from=reads,values_fn=~.x > 0,values_fill=FALSE) 
-          
-          # glue text for invasive species/genera
-          inv_spp <- '{species}<sup>**†**</sup>'
-          nat_gen <- '{species}<sup>**\\***</sup>'
-          # join everything together into the expected/unexpected table
-          ss <- spp %>%
-            # keep only family to species
-            select(-c(domain:order)) %>%
-            # first set all expected species to expected
-            mutate(expected = TRUE) %>%
-            # join in species we actually detected
-            full_join(sp_id,by=c("family","genus","species")) %>%
-            mutate(
-              # any NA expected value is an unexpected species
-              expected = replace_na(expected,FALSE),
-              # any NA marker value is a negative detection
-              across(any_of(markers),~replace_na(.x,FALSE))
-            ) %>%
-            # were there detections for any marker?
-            mutate(`Any marker` = rowSums(pick(any_of(markers))) > 0) %>%
-            # get rid of undetected taxa, if that's what we want to do
-            filter(show_all[dsn] | `Any marker`) %>%
-            # drop the any 'marker' if we're not showing everything
-            { if(!show_all[dsn]) select(.,-`Any marker`) else . } %>%
-            # switch to long format
-            pivot_longer(-c(family:expected),names_to="marker",values_to="present")  %>%
-            # drop markers with zero detections
-            group_by(marker) %>%
-            filter(sum(present) > 0) %>%
-            ungroup() %>%
-            # filter out unexpected 'Any' markers
-            filter(!(!expected & marker == "Any marker")) %>%
-            # create columns for plotting
-            mutate( 
-              exp = exp_map[[dsn]][as.integer(expected)+1]
-            ) %>%
-            # smash together marker and present true/false
-            mutate(., marker = marker_map[marker]) %>%
-            unite("clr",marker,present,remove = FALSE) %>%
-            { if(show_all[dsn]) mutate(.,marker = fct_relevel(marker,"Any marker",after=Inf)) else . } %>%
-            # annotate known introduced/invasive species
-            mutate( 
-              species = case_when(
-                color_introduced & 
-                  show_inv[dsn] &
-                  species %in% ais$scientific_name ~
-                  str_glue(inv_spp),
-                color_introduced & 
-                  show_inv[dsn] & 
-                  !expected &
-                  !(species %in% ais$scientific_name) &
-                  genus %in% ais$genus &
-                  genus %in% spp$genus ~ str_glue(nat_gen),
-                .default = species
-              ),
-              species = str_glue("*{species}*")
-            ) %>%
-            # sort by expected and taxonomy
-            arrange(desc(expected),across(family:species)) %>%
-            # add row number to sort species names
-            mutate(n=row_number()) %>%
-            # order species names as factor levels so they display in the order we want
-            mutate(species = fct_reorder(species,-n)) %>%
-            # get rid of temp column
-            select(-n)  
-          
-          # make a color palette so that each present marker gets its own
-          # color, but all absent markers are just white
-          mp = c(
-            marker_pal %>% set_names(str_c(marker_map, "_TRUE")),
-            rep("white",7) %>% set_names(str_c(marker_map, "_FALSE"))
-          )
-          
-          # do plot
-          ggplot(ss) + 
-            # points/tiles for presence/absence of species x marker
-            { if (tile) geom_tile(aes(x=marker,y=species,fill=clr),color="gray10") else geom_point(aes(x=marker_map[marker],y=species,fill=clr),shape=21,color="black",size=2.5) } +
-            # fill them by marker color
-            scale_fill_manual(values=mp,guide="none",na.value = "white") + 
-            # put the x axis labels on top
-            scale_x_discrete(position="top") +
-            # facet by expected
-            ggforce::facet_col(~exp,scales="free",space="free") + 
-            # make it look nicer
-            theme_bw() + 
-            theme(
-              strip.background = element_rect(fill="#eeeeee"),
-              strip.text = element_text(face = "bold"),
-              axis.title = element_blank(),
-              axis.text.y = element_markdown(),
-              axis.text.x = element_text(face="bold")
-            ) 
-        }
-      })
-  })
-
-# show a couple example plots
-# expected_plotz$raw$mock
-# expected_plotz$raw$aquarium
-# expected_plotz$raw$sharkpen
-
-# another hacky little map so we get the right plot sizes
-plotsizes <- list(
-  mock = c(9.8,13),
-  aquarium = c(7.7,7.7),
-  sharkpen = c(7.7,7.7)
-)
-
-# save expected plot figures
-if (save_pdf) {
-  expected_plotz %>%
-    iwalk(~{
-      r <- .y
-      .x %>% iwalk(~{
-        p <- .y
-        ggsave(path(fig_dir,str_glue("expected_{p}_{r}.pdf")),.x,device=cairo_pdf,width=plotsizes[[p]][1],height=plotsizes[[p]][2],units="in")
-      })
-    })
-}
-
-# proportion of expected taxa ---------------------------------------------
-
-proportion_expected_plotz <- datasets %>%
-  map(~{
-    plot_data <- .x %>%
-      # dump the sharkpen since we have something like 1,200 "expected" species
-      discard_at("sharkpen") %>%
-      imap(~{
-        ds <- .x
-        dsn <- .y
-        if (file_exists(path(data_dir,str_glue("{dsn}_species.csv")))) {
-          # read expected species from file and join in lineage info from ncbi taxonomy
-          # we use the lineage info to sort by family in addition to genus/species
-          spp <- read_csv(path(data_dir,str_glue("{dsn}_species.csv")),col_types=cols()) %>%
-            mutate(expected=TRUE) %>%
-            select(family:species,expected)
-          # prepare list of detected species
-          sp_id <- ds %>%
-            # drop unidentified things
-            filter(
-              !str_detect(species,"sp\\.$"),
-              !str_detect(species,"^unidentified")
-            ) %>%
-            # group by marker and species
-            group_by(marker,across(domain:species)) %>%
-            summarise(reads = sum(reads)) %>%
-            ungroup() %>%
-            # keep only family to species
-            select(-c(domain:order)) %>%
-            # switch to wide (marker x detected)
-            pivot_wider(names_from="marker",values_from=reads,values_fn=~.x > 0,values_fill=FALSE) 
-          # join everything together into the expected/unexpected table
-          plot_data <- spp %>%
-            # first set all expected species to expected
-            # join in species we actually detected
-            full_join(sp_id,by=c("family","genus","species")) %>%
-            mutate(
-              # any NA expected value is an unexpected species
-              expected = replace_na(expected,FALSE),
-              # any NA marker value is a negative detection
-              across(any_of(markers),~replace_na(.x,FALSE))
-            )  %>%
-            # switch to long format
-            mutate(`Any marker` = rowSums(pick(any_of(markers))) > 0) %>%
-            pivot_longer(c(any_of(markers),`Any marker`),names_to = "marker",values_to = "present") %>%
-            group_by(marker) %>%
-            summarise(
-              present = sum(present & expected),
-              expected = sum(expected)
-            ) %>%
-            ungroup() %>%
-            mutate(
-              proportion = present/expected,
-              dataset=title_map[dsn],
-              marker = marker_map[marker],
-              marker = fct_relevel(marker,"Any marker",after=Inf)
-            ) 
-          
-          ggplot(plot_data) +
-            geom_col(aes(x=marker,y=proportion,fill=names(marker_map)[marker])) + 
-            scale_y_continuous(limits=c(0,1),expand = c(0,NA), labels = scales::percent) + 
-            scale_fill_manual(values=marker_pal,name="Primer",guide="none") + 
-            theme_bw() +
-            theme(
-              panel.border = element_blank(),
-              axis.line = element_line(color="black"),
-              panel.grid = element_blank(),
-              axis.text.x = element_text(angle=30, hjust=1),
-              axis.title = element_text(face="bold")
-            ) + 
-            labs(x="Primer",y="% expected species recovered")
-        }
-      }) %>%
-      reduce(`+`) + 
-      plot_layout(guides = "collect", axis_titles = "collect") + 
-      plot_annotation(tag_levels = plot_tags)
-  })
-
-if (save_pdf) {
-  proportion_expected_plotz %>%
-    iwalk(~ggsave(path(fig_dir,str_glue("proportion_expected_{.y}.pdf")),.x,device=cairo_pdf,width=9,height=4,units="in"))
-}
-
-# community multivariate statistics and pcoa plots ------------------------
+# community multivariate statistics and pcoa plots (Fig. pt. 1) ------------
 
 community_stats <- datasets %>%
   map(~{
@@ -1115,7 +636,7 @@ pcoa_plotz <- community_stats %>%
       })
   })
 
-# chord plots -------------------------------------------------------------
+# chord plots (Fig. 1 pt. 2) ----------------------------------------------
 make_chord <- function(dd,margin,pal,units="",group=NULL) {
   circos.clear()
   if (units == "in") {
@@ -1171,12 +692,12 @@ comp_layout = c(
   patchwork::area(l = 1, r = 72, t = 17, b = 26)
   )
 
-tag.positions = list(c(0,1), c(0,1), c(0,1),
+tag_positions = list(c(0,1), c(0,1), c(0,1),
                      c(0.075,0.8), c(0.075,0.8), c(0.075,0.8))
 
 chord_pcoa_composites <- pcoa_plotz %>%
   map(~{
-    plots = map2(c(.x, chord_plotz), tag.positions, ~ .x + theme(legend.position = "none",
+    plots = map2(c(.x, chord_plotz), tag_positions, ~ .x + theme(legend.position = "none",
                                                                  plot.tag.position = .y))
     wrap_plots(plots, ncol = 2, byrow = F) +
       plot_layout(design = comp_layout) +
@@ -1190,7 +711,185 @@ if (save_pdf) {
     iwalk(~ggsave(path(fig_dir,str_glue("chord_pcoa_composite_{.y}.pdf")),.x,device=cairo_pdf,width=12,height=22,units="in"))
 }
 
-# primer performance plots ------------------------------------------------
+# expected vs unexpected species detections (Figs. 2-4) -------------------
+
+# load known invasive/introduced species
+ais <- read_csv(path(data_dir,"ais.csv"))
+
+# hacky little config map to say whether we want to see ALL possible expected species in the figure (or not)
+# this is done so that the lagoon figure doesn't show ~1200 speces in the 'expected' column
+show_all <- c(
+  mock = TRUE,
+  aquarium = TRUE,
+  lagoon = FALSE
+)
+
+# hacky little config map to say whether we want to see invasive/introduced species
+# (of course we don't care about this for the aquarium dataset)
+show_inv <- c(
+  mock = FALSE,
+  aquarium = FALSE,
+  lagoon = TRUE
+)
+
+exp_map = list(
+  lagoon = c("Not known from Hawai‘i","Known from Hawai‘i"),
+  aquarium = c("Not known from aquarium tank","In aquarium tank"),
+  mock = c("Not in mock community","In mock community")
+)
+
+# whether to color invasive/introduced/whatever
+color_introduced <- TRUE
+
+# whether to do point or tile
+tile <- TRUE
+
+# create
+expected_plotz <- datasets %>%
+  map(~{
+    .x %>%
+      imap(~{
+        ds <- .x
+        dsn <- .y
+        if (file_exists(path(data_dir,str_glue("{dsn}_species.csv")))) {
+          # read expected species from file and join in lineage info from ncbi taxonomy
+          # we use the lineage info to sort by family in addition to genus/species
+          spp <- read_csv(path(data_dir,str_glue("{dsn}_species.csv")),col_types=cols())
+          
+          # prepare list of detected species
+          sp_id <- ds %>%
+            # drop unidentified things
+            filter_unidentified(., "species") %>%
+            # group by marker and species
+            group_by(marker,across(domain:species)) %>%
+            summarise(reads = sum(reads)) %>%
+            ungroup() %>%
+            # keep only family to species
+            select(-c(domain:order),class) %>%
+            # switch to wide (marker x detected)
+            pivot_wider(names_from="marker",values_from=reads,values_fn=~.x > 0,values_fill=FALSE) 
+          
+          # glue text for invasive species/genera
+          inv_spp <- '{species}<sup>**†**</sup>'
+          nat_gen <- '{species}<sup>**\\***</sup>'
+          # join everything together into the expected/unexpected table
+          ss <- spp %>%
+            # keep only family to species
+            select(-c(domain:order),class) %>%
+            # first set all expected species to expected
+            mutate(expected = TRUE) %>%
+            # join in species we actually detected
+            full_join(sp_id,by=c("class","family","genus","species")) %>%
+            mutate(
+              # any NA expected value is an unexpected species
+              expected = replace_na(expected,FALSE),
+              # any NA marker value is a negative detection
+              across(any_of(markers),~replace_na(.x,FALSE))
+            ) %>%
+            # were there detections for any marker?
+            mutate(`Any marker` = rowSums(pick(any_of(markers))) > 0) %>%
+            # get rid of undetected taxa, if that's what we want to do
+            filter(show_all[dsn] | `Any marker`) %>%
+            # drop the any 'marker' if we're not showing everything
+            { if(!show_all[dsn]) select(.,-`Any marker`) else . } %>%
+            # switch to long format
+            pivot_longer(-c(family:expected),names_to="marker",values_to="present")  %>%
+            # drop markers with zero detections
+            group_by(marker) %>%
+            filter(sum(present) > 0) %>%
+            ungroup() %>%
+            # filter out unexpected 'Any' markers
+            filter(!(!expected & marker == "Any marker")) %>%
+            # create columns for plotting
+            mutate( 
+              exp = exp_map[[dsn]][as.integer(expected)+1]
+            ) %>%
+            # smash together marker and present true/false
+            mutate(., marker = marker_map[marker]) %>%
+            unite("clr",marker,present,remove = FALSE) %>%
+            { if(show_all[dsn]) mutate(.,marker = fct_relevel(marker,"Any marker",after=Inf)) else . } %>%
+            # annotate known introduced/invasive species
+            mutate( 
+              species = case_when(
+                color_introduced & 
+                  show_inv[dsn] &
+                  species %in% ais$scientific_name ~
+                  str_glue(inv_spp),
+                color_introduced & 
+                  show_inv[dsn] & 
+                  !expected &
+                  !(species %in% ais$scientific_name) &
+                  genus %in% ais$genus &
+                  genus %in% spp$genus ~ str_glue(nat_gen),
+                .default = species
+              ),
+              species = str_glue("*{species}*")
+            ) %>%
+            # sort by expected and taxonomy
+            arrange(desc(expected),class,across(family:species)) %>%
+            # add row number to sort species names
+            mutate(n=row_number()) %>%
+            # order species names as factor levels so they display in the order we want
+            mutate(species = fct_reorder(species,-n)) %>%
+            # get rid of temp column
+            select(-n)  
+          
+          # make a color palette so that each present marker gets its own
+          # color, but all absent markers are just white
+          mp = c(
+            marker_pal %>% set_names(str_c(marker_map, "_TRUE")),
+            rep("white",length(marker_pal)) %>% set_names(str_c(marker_map, "_FALSE"))
+          )
+          
+          # do plot
+          ggplot(ss) + 
+            # points/tiles for presence/absence of species x marker
+            { if (tile) geom_tile(aes(x=marker,y=species,fill=clr),color="gray10") else geom_point(aes(x=marker_map[marker],y=species,fill=clr),shape=21,color="black",size=2.5) } +
+            # fill them by marker color
+            scale_fill_manual(values=mp,guide="none",na.value = "white") + 
+            # put the x axis labels on top
+            scale_x_discrete(position="top") +
+            # scale_y_discrete(expand = expansion(mult=1.5)) + 
+            # facet by expected
+            ggforce::facet_col(~exp,scales="free",space="free") + 
+            # make it look nicer
+            theme_bw() + 
+            theme(
+              strip.background = element_rect(fill="#eeeeee"),
+              strip.text = element_text(face = "bold"),
+              axis.title = element_blank(),
+              axis.text.y = element_markdown(),
+              axis.text.x = element_text(face="bold")
+            ) 
+        }
+      })
+  })
+
+# show a couple example plots
+# expected_plotz$raw$mock
+# expected_plotz$raw$aquarium
+expected_plotz$raw$lagoon
+
+# another hacky little map so we get the right plot sizes
+plotsizes <- list(
+  mock = c(9.8,13),
+  aquarium = c(7.7,7.7),
+  lagoon = c(7.7,7.7)
+)
+
+# save expected plot figures
+if (save_pdf) {
+  expected_plotz %>%
+    iwalk(~{
+      r <- .y
+      .x %>% iwalk(~{
+        p <- .y
+        ggsave(path(fig_dir,str_glue("expected_{p}_{r}.pdf")),.x,device=cairo_pdf,width=plotsizes[[p]][1],height=plotsizes[[p]][2],units="in")
+      })
+    })
+}
+
+# primer performance plots (Fig. 5) ---------------------------------------
 primer_taxa_pal <- c(
   "Bony fishes" = "#3B01FE",
   "Sharks & rays" = "#A9A9A9",
@@ -1234,4 +933,306 @@ primers_rel_reads_plot <- primer_plotz %>%
 
 if (save_pdf) {
   ggsave(path(fig_dir,"primer_relative_reads.pdf"),device=cairo_pdf,primers_rel_reads_plot,width=9.5,height=6.5,units="in")
+}
+
+# family intersections (upset plots) (Fig. 6) -------------------------------
+
+upset_plotz <- datasets %>%
+  map(~{
+    .x %>%
+      map(~{
+        ds <- .x
+        ds %>%
+          filter_unidentified(., "family") %>%
+          # create a presence/absence dataset where we pivot to wider by marker x family
+          # and summarise each occurrence as a zero or one (1 = sum(reads) > 0)
+          pivot_wider(id_cols=family, names_from="marker", values_from="reads", values_fill = 0, values_fn=~as.integer(sum(.x) > 0)) %>%
+          # plot the upset plot
+          upset_plot(
+            name_column=family,
+            data_columns=any_of(markers),
+            label_top_bars = TRUE,
+            label_side_bars = TRUE,
+            bar_lab = str_glue("Families"),
+            sidebar_lab = "Families", 
+            group_palette = marker_pal
+          ) %>%
+          wrap_elements()
+      })
+  })
+
+# show upset plots for family and zotu in the unrarefied mock community
+# upset_plotz$raw$lagoon$family / upset_plotz$raw$lagoon$zotu + plot_annotation(tag_levels = plot_tags)
+# upset_plotz$raw$aquarium$family / upset_plotz$raw$aquarium$zotu + plot_annotation(tag_levels = plot_tags)
+# upset_plotz$raw$mock$family / upset_plotz$raw$mock$zotu + plot_annotation(tag_levels = plot_tags)
+
+# put the plots together for each sample type
+upset_composites <- upset_plotz %>%
+  map(~{
+    reduce(.x, `/`) + plot_annotation(tag_levels = plot_tags)
+  })
+
+# save them
+if (save_pdf) {
+  upset_composites %>%
+    iwalk(~{
+      r <- .y
+      ggsave(
+        filename = file.path(fig_dir, str_glue("upset_{r}.pdf")),
+        plot = .x,
+        device = cairo_pdf,
+        width = 10,
+        height = 13,
+        units = "in"
+      )
+    })
+}
+
+# taxon bar plots (Figs. S1-S2) -------------------------------------------
+
+# taxonomic levels at which to group bar plots
+plot_levels <- c("order","family")
+
+# create a list of bar plots by plot level and dataset
+rel_taxon_plotz <- datasets %>%
+  map(~{
+    dataset <- .x
+    #map through plot levels
+    plot_levels %>%
+      set_names() %>%
+      map(~{
+        # save plot level into `pl`
+        pl <- .x
+        # map through datasets
+        dataset %>%
+          imap(~{
+            # save dataset name
+            nn <- .y
+            # sum up relative reads for marker/plot level combos
+            dd <- .x %>%
+              { if (pl %in% c("class", "order")) . else filter_unidentified(., pl) } %>%
+              # recalculate rel in case we've filtered out unidentified things
+              group_by(marker) %>%
+              mutate(rel = reads/sum(reads)) %>%
+              ungroup() %>% 
+              # sum rel for marker and plot level
+              group_by(marker,across(all_of(pl))) %>%
+              summarise(rel = sum(rel)) %>%
+              ungroup() 
+            # do plotting
+            ggplot(dd) + 
+              geom_col(aes(x=marker_map[marker],y=rel,fill=.data[[pl]]),show.legend = TRUE) +
+              scale_x_discrete(drop = FALSE) +
+              scale_y_continuous(expand = expansion(mult=c(0.01,NA)) ) +
+              scale_fill_manual(
+                values=palettes[[pl]],
+                drop=FALSE,
+                name=str_to_sentence(pl)
+              ) + 
+              theme_bw() + 
+              theme(
+                panel.border = element_blank(),
+                axis.line = element_line(color="black"),
+                panel.grid = element_blank(),
+                axis.text.x = element_text(angle=90),
+                axis.title = element_text(face="bold")
+              ) + 
+              labs(y=str_glue("Relative sequence abundance"),x="Marker")
+          })
+      }) 
+  })
+
+# rel_taxon_plotz$raw$family$aquarium
+# rel_taxon_plotz$raw$family$mock
+# rel_taxon_plotz$raw$family$lagoon
+
+# reduce all these plots to one big one using patchwork
+
+# make composite plots for each plot level
+rel_taxon_composites <- rel_taxon_plotz %>%
+  map(~{
+    .x %>%
+      imap(~{
+        .x %>%
+          map(~.x + theme(axis.text.x = element_text(angle=45,hjust=1))) %>%
+          reduce(`/`) +
+          plot_annotation(tag_levels = plot_tags) + 
+          plot_layout(guides="collect", axis_titles = "collect")
+      })
+  })
+
+if (save_pdf) {
+  rel_taxon_composites %>%
+    iwalk(~{
+      r <- .y
+      .x %>%
+        iwalk(~{
+          pl <- .y
+          .x <- .x &
+            guides(fill = guide_legend(ncol = 3)) & 
+            theme(
+              axis.text = element_text(size=20),
+              legend.text = element_text(size=24),
+              axis.title = element_text(size=24),
+              axis.title.y = element_text(size=24),
+              legend.title = element_text(size=24),
+              legend.key.size = unit(26,units="pt"),
+              plot.tag = element_text(size=30)
+            )
+          ggsave(path(fig_dir,str_glue("taxon_composite_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=24,height=28,units="in")
+        })
+    })
+}
+# see them like this
+# rel_taxon_composites$raw$family
+# rel_taxon_composites$raw$order
+
+# relative zotu abundance heatmaps (Figs. S3-S4) ---------------------------
+
+# plot zotus by taxonomic level
+plot_levels <- c("order","family")
+
+rel_zotu_plotz <- datasets %>%
+  map(~{
+    dataset <- .x
+    plot_levels %>%
+      set_names() %>%
+      map(~{
+        pl <- .x
+        dataset %>%
+          imap(~{
+            dsn <- .y
+            dd <- .x %>%
+              { if (pl %in% c("class", "order")) . else filter_unidentified(., pl) } %>%
+              # recalculate rel in case we've filtered out unidentified things
+              group_by(marker) %>%
+              mutate(rel = reads/sum(reads)) %>%
+              ungroup() %>% 
+              # sum rel for marker and plot level
+              group_by(marker,across(all_of(pl))) %>%
+              summarise(rel = sum(rel), reads = sum(reads)) %>%
+              ungroup() %>%
+              pivot_wider(id_cols=-reads,names_from = "marker", values_from = "rel", values_fill = 0) %>%
+              pivot_longer(any_of(markers),names_to = "marker", values_to = "rel") %>%
+              mutate("{pl}" := fct_relevel(.data[[pl]],"unidentified")) %>%
+              suppressWarnings()
+            
+            ggplot(dd) + 
+              geom_tile(aes(x=marker_map[marker],y=.data[[pl]],fill=rel),color="grey8") + 
+              scale_fill_paletteer_c("viridis::turbo",name="Relative\nabundance")  +
+              scale_y_discrete(limits=rev) + 
+              labs(x="Marker",y=str_to_sentence(pl)) + 
+              theme(axis.title = element_text(face="bold"))
+          })
+      })
+  })
+
+# make composite plots for each
+zotu_heats <- rel_zotu_plotz %>%
+  map(~{
+    .x %>%
+      imap(~{
+        .x %>%
+          map(~.x + theme(axis.text.x = element_text(angle=45,hjust=1))) %>%
+          reduce(`+`) +
+          plot_layout(axis_titles = "collect") + 
+          plot_annotation(title="",tag_levels = plot_tags) &
+          theme(plot.tag = element_text(size=18))
+      })
+  })
+
+if (save_pdf) {
+  zotu_heats %>%
+    iwalk(~{
+      r <- .y
+      .x %>%
+        iwalk(~{
+          pl <- .y
+          ggsave(path(fig_dir,str_glue("zotu_heatmap_{pl}_{r}.pdf")),.x,device=cairo_pdf,width=18,height=8,units="in")
+        })
+    })
+}
+
+
+# proportion of expected taxa (not included in MS) ------------------------
+
+proportion_expected_plotz <- datasets %>%
+  map(~{
+    plot_data <- .x %>%
+      # dump the lagoon since we have something like 1,200 "expected" species
+      discard_at("lagoon") %>%
+      imap(~{
+        ds <- .x
+        dsn <- .y
+        if (file_exists(path(data_dir,str_glue("{dsn}_species.csv")))) {
+          # read expected species from file and join in lineage info from ncbi taxonomy
+          # we use the lineage info to sort by family in addition to genus/species
+          spp <- read_csv(path(data_dir,str_glue("{dsn}_species.csv")),col_types=cols()) %>%
+            mutate(expected=TRUE) %>%
+            select(family:species,expected)
+          # prepare list of detected species
+          sp_id <- ds %>%
+            # drop unidentified things
+            filter(
+              !str_detect(species,"sp\\.$"),
+              !str_detect(species,"^unidentified")
+            ) %>%
+            # group by marker and species
+            group_by(marker,across(domain:species)) %>%
+            summarise(reads = sum(reads)) %>%
+            ungroup() %>%
+            # keep only family to species
+            select(-c(domain:order)) %>%
+            # switch to wide (marker x detected)
+            pivot_wider(names_from="marker",values_from=reads,values_fn=~.x > 0,values_fill=FALSE) 
+          # join everything together into the expected/unexpected table
+          plot_data <- spp %>%
+            # first set all expected species to expected
+            # join in species we actually detected
+            full_join(sp_id,by=c("family","genus","species")) %>%
+            mutate(
+              # any NA expected value is an unexpected species
+              expected = replace_na(expected,FALSE),
+              # any NA marker value is a negative detection
+              across(any_of(markers),~replace_na(.x,FALSE))
+            )  %>%
+            # switch to long format
+            mutate(`Any marker` = rowSums(pick(any_of(markers))) > 0) %>%
+            pivot_longer(c(any_of(markers),`Any marker`),names_to = "marker",values_to = "present") %>%
+            group_by(marker) %>%
+            summarise(
+              present = sum(present & expected),
+              expected = sum(expected)
+            ) %>%
+            ungroup() %>%
+            mutate(
+              proportion = present/expected,
+              dataset=title_map[dsn],
+              marker = marker_map[marker],
+              marker = fct_relevel(marker,"Any marker",after=Inf)
+            ) 
+          
+          ggplot(plot_data) +
+            geom_col(aes(x=marker,y=proportion,fill=names(marker_map)[marker])) + 
+            scale_y_continuous(limits=c(0,1),expand = c(0,NA), labels = scales::percent) + 
+            scale_fill_manual(values=marker_pal,name="Primer",guide="none") + 
+            theme_bw() +
+            theme(
+              panel.border = element_blank(),
+              axis.line = element_line(color="black"),
+              panel.grid = element_blank(),
+              axis.text.x = element_text(angle=30, hjust=1),
+              axis.title = element_text(face="bold")
+            ) + 
+            labs(x="Primer",y="% expected species recovered")
+        }
+      }) %>%
+      reduce(`+`) + 
+      plot_layout(guides = "collect", axis_titles = "collect") + 
+      plot_annotation(tag_levels = plot_tags)
+  })
+
+if (save_pdf) {
+  proportion_expected_plotz %>%
+    iwalk(~ggsave(path(fig_dir,str_glue("proportion_expected_{.y}.pdf")),.x,device=cairo_pdf,width=9,height=4,units="in"))
 }
