@@ -97,17 +97,6 @@ rarefy_perm <- 100
 # whether to filter out unidentified taxa
 filter_unid <- TRUE
 
-# how to filter unidentified taxa and factor levels
-filter_unidentified <- function(df, pl) {
-  unid = "unidentified| sp\\."
-  lvls = levels(df[[pl]])[grep(unid, levels(df[[pl]]))]
-  filt_df = df %>%
-    filter(!str_detect(.data[[pl]], unid)) %>%
-    mutate("{pl}" := fct_collapse(.data[[pl]], unidentified = lvls)) %>%
-    mutate("{pl}" := fct_recode(.data[[pl]], NULL = "unidentified"))
-  return(filt_df)
-}
-
 # helper to make nice number formats
 num <- function(x,a=NULL) scales::label_comma(accuracy=a)(x)
 
@@ -747,128 +736,147 @@ tile <- TRUE
 # create
 expected_plotz <- datasets %>%
   map(~{
-    .x %>%
-      imap(~{
-        ds <- .x
-        dsn <- .y
-        if (file_exists(path(data_dir,str_glue("{dsn}_species.csv")))) {
-          # read expected species from file and join in lineage info from ncbi taxonomy
-          # we use the lineage info to sort by family in addition to genus/species
-          spp <- read_csv(path(data_dir,str_glue("{dsn}_species.csv")),col_types=cols())
-          
-          # prepare list of detected species
-          sp_id <- ds %>%
-            # drop unidentified things
-            filter_unidentified(., "species") %>%
-            # group by marker and species
-            group_by(marker,across(domain:species)) %>%
-            summarise(reads = sum(reads)) %>%
-            ungroup() %>%
-            # keep only family to species
-            select(-c(domain:order),class) %>%
-            # switch to wide (marker x detected)
-            pivot_wider(names_from="marker",values_from=reads,values_fn=~.x > 0,values_fill=FALSE) 
-          
-          # glue text for invasive species/genera
-          inv_spp <- '{species}<sup>**†**</sup>'
-          nat_gen <- '{species}<sup>**\\***</sup>'
-          # join everything together into the expected/unexpected table
-          ss <- spp %>%
-            # keep only family to species
-            select(-c(domain:order),class) %>%
-            # first set all expected species to expected
-            mutate(expected = TRUE) %>%
-            # join in species we actually detected
-            full_join(sp_id,by=c("class","family","genus","species")) %>%
-            mutate(
-              # any NA expected value is an unexpected species
-              expected = replace_na(expected,FALSE),
-              # any NA marker value is a negative detection
-              across(any_of(markers),~replace_na(.x,FALSE))
-            ) %>%
-            # were there detections for any marker?
-            mutate(`Any marker` = rowSums(pick(any_of(markers))) > 0) %>%
-            # get rid of undetected taxa, if that's what we want to do
-            filter(show_all[dsn] | `Any marker`) %>%
-            # drop the any 'marker' if we're not showing everything
-            { if(!show_all[dsn]) select(.,-`Any marker`) else . } %>%
-            # switch to long format
-            pivot_longer(-c(family:expected),names_to="marker",values_to="present")  %>%
-            # drop markers with zero detections
-            group_by(marker) %>%
-            filter(sum(present) > 0) %>%
-            ungroup() %>%
-            # filter out unexpected 'Any' markers
-            filter(!(!expected & marker == "Any marker")) %>%
-            # create columns for plotting
-            mutate( 
-              exp = exp_map[[dsn]][as.integer(expected)+1]
-            ) %>%
-            # smash together marker and present true/false
-            mutate(., marker = marker_map[marker]) %>%
-            unite("clr",marker,present,remove = FALSE) %>%
-            { if(show_all[dsn]) mutate(.,marker = fct_relevel(marker,"Any marker",after=Inf)) else . } %>%
-            # annotate known introduced/invasive species
-            mutate( 
-              species = case_when(
-                color_introduced & 
-                  show_inv[dsn] &
-                  species %in% ais$scientific_name ~
-                  str_glue(inv_spp),
-                color_introduced & 
-                  show_inv[dsn] & 
-                  !expected &
-                  !(species %in% ais$scientific_name) &
-                  genus %in% ais$genus &
-                  genus %in% spp$genus ~ str_glue(nat_gen),
-                .default = species
-              ),
-              species = str_glue("*{species}*")
-            ) %>%
-            # sort by expected and taxonomy
-            arrange(desc(expected),class,across(family:species)) %>%
-            # add row number to sort species names
-            mutate(n=row_number()) %>%
-            # order species names as factor levels so they display in the order we want
-            mutate(species = fct_reorder(species,-n)) %>%
-            # get rid of temp column
-            select(-n)  
-          
-          # make a color palette so that each present marker gets its own
-          # color, but all absent markers are just white
-          mp = c(
-            marker_pal %>% set_names(str_c(marker_map, "_TRUE")),
-            rep("white",length(marker_pal)) %>% set_names(str_c(marker_map, "_FALSE"))
-          )
-          
-          # do plot
-          ggplot(ss) + 
-            # points/tiles for presence/absence of species x marker
-            { if (tile) geom_tile(aes(x=marker,y=species,fill=clr),color="gray10") else geom_point(aes(x=marker_map[marker],y=species,fill=clr),shape=21,color="black",size=2.5) } +
-            # fill them by marker color
-            scale_fill_manual(values=mp,guide="none",na.value = "white") + 
-            # put the x axis labels on top
-            scale_x_discrete(position="top") +
-            # scale_y_discrete(expand = expansion(mult=1.5)) + 
-            # facet by expected
-            ggforce::facet_col(~exp,scales="free",space="free") + 
-            # make it look nicer
-            theme_bw() + 
-            theme(
-              strip.background = element_rect(fill="#eeeeee"),
-              strip.text = element_text(face = "bold"),
-              axis.title = element_blank(),
-              axis.text.y = element_markdown(),
-              axis.text.x = element_text(face="bold")
-            ) 
-        }
-      })
+    ranks %>%
+      set_names() %>%
+      map(\(taxon) {
+        .x %>%
+          imap(~{
+            ds <- .x
+            dsn <- .y
+            if (file_exists(path(data_dir,str_glue("{dsn}_species.csv")))) {
+              # read expected species from file and join in lineage info from ncbi taxonomy
+              # we use the lineage info to sort by family in addition to genus/species
+              spp <- read_csv(path(data_dir,str_glue("{dsn}_species.csv")),col_types=cols())
+              # prepare list of detected species
+              sp_id <- ds %>%
+                # drop unidentified things
+                filter_unidentified(taxon) %>%
+                # group by marker and species
+                group_by(marker,across(domain:all_of(taxon))) %>%
+                summarise(reads = sum(reads)) %>%
+                ungroup() %>%
+                # keep only family to species
+                select(-c(domain:order),class) %>%
+                # switch to wide (marker x detected)
+                pivot_wider(names_from="marker",values_from=reads,values_fn=~.x > 0,values_fill=FALSE) 
+              
+              # glue text for invasive species/genera
+              inv_spp <- str_glue('{{{taxon}}}<sup>**†**</sup>')
+              nat_gen <- str_glue('{{{taxon}}}<sup>**\\***</sup>')
+              
+              # get join columns
+              join_cols <- sp_id %>%
+                select(-any_of(markers)) %>%
+                names()
+              
+              tax_cols <- ds %>%
+                select(-c(marker:last_col())) %>%
+                names()
+              
+              join_cols <- tax_cols[sort(match(join_cols,tax_cols))]
+              
+              # join everything together into the expected/unexpected table
+              ss <- spp %>%
+                # keep only family to species
+                select(all_of(join_cols)) %>%
+                distinct(across(all_of(join_cols))) %>%
+                # first set all expected species to expected
+                mutate(expected = TRUE) %>% 
+                # join in species we actually detected
+                full_join(sp_id,by=join_cols) %>%
+                select(all_of(join_cols),expected,any_of(markers)) %>%
+                mutate(
+                  # any NA expected value is an unexpected species
+                  expected = replace_na(expected,FALSE),
+                  # any NA marker value is a negative detection
+                  across(any_of(markers),~replace_na(.x,FALSE))
+                ) %>%
+                # were there detections for any marker?
+                mutate(`Any marker` = rowSums(pick(any_of(markers))) > 0) %>%
+                # get rid of undetected taxa, if that's what we want to do
+                filter(show_all[dsn] | `Any marker`) %>%
+                # drop the any 'marker' if we're not showing everything
+                { if(!show_all[dsn]) select(.,-`Any marker`) else . } %>%
+                # switch to long format
+                pivot_longer(-c(all_of(join_cols),expected),names_to="marker",values_to="present")  %>%
+                # drop markers with zero detections
+                group_by(marker) %>%
+                filter(sum(present) > 0) %>%
+                ungroup() %>%
+                # filter out unexpected 'Any' markers
+                filter(!(!expected & marker == "Any marker")) %>%
+                # create columns for plotting
+                mutate( 
+                  exp = exp_map[[dsn]][as.integer(expected)+1]
+                ) %>%
+                # smash together marker and present true/false
+                mutate(marker = marker_map[marker]) %>%
+                unite("clr",marker,present,remove = FALSE) %>%
+                { if(show_all[dsn]) mutate(.,marker = fct_relevel(marker,"Any marker",after=Inf)) else . } %>%
+                # annotate known introduced/invasive species
+                mutate(
+                  "{taxon}" := case_when(
+                    color_introduced &
+                      taxon == "species" & 
+                      show_inv[dsn] &
+                      .data[[taxon]] %in% ais[[taxon]] ~
+                      str_glue(inv_spp),
+                    color_introduced &
+                      taxon == "species" & 
+                      show_inv[dsn] &
+                      !expected &
+                      !(.data[[taxon]] %in% ais[[taxon]]) &
+                      genus %in% ais$genus &
+                      genus %in% spp$genus ~ str_glue(nat_gen),
+                    .default = .data[[taxon]]
+                  ),
+                  "{taxon}" := str_glue(str_glue("*{{{taxon}}}*"))
+                ) %>%
+                # sort by expected and taxonomy
+                arrange(desc(expected),class,across(family:all_of(taxon))) %>%
+                # add row number to sort species names
+                mutate(n=row_number()) %>%
+                # order species names as factor levels so they display in the order we want
+                mutate("{taxon}" := fct_reorder(.data[[taxon]],-n)) %>%
+                # get rid of temp column
+                select(-n)  
+              
+              # make a color palette so that each present marker gets its own
+              # color, but all absent markers are just white
+              mp = c(
+                marker_pal %>% set_names(str_c(marker_map, "_TRUE")),
+                rep("white",length(marker_pal)) %>% set_names(str_c(marker_map, "_FALSE"))
+              )
+              
+              # do plot
+              ggplot(ss) + 
+                # points/tiles for presence/absence of species x marker
+                { if (tile) geom_tile(aes(x=marker,y=.data[[taxon]],fill=clr),color="gray10") else geom_point(aes(x=marker_map[marker],y=.data[[taxon]],fill=clr),shape=21,color="black",size=2.5) } +
+                # fill them by marker color
+                scale_fill_manual(values=mp,guide="none",na.value = "white") + 
+                # put the x axis labels on top
+                scale_x_discrete(position="top") +
+                # scale_y_discrete(expand = expansion(mult=1.5)) + 
+                # facet by expected
+                ggforce::facet_col(~exp,scales="free",space="free") + 
+                # make it look nicer
+                theme_bw() + 
+                theme(
+                  strip.background = element_rect(fill="#eeeeee"),
+                  strip.text = element_text(face = "bold"),
+                  axis.title = element_blank(),
+                  axis.text.y = element_markdown(),
+                  axis.text.x = element_text(face="bold")
+                ) 
+            } 
+          })
+      }) # end ranks
   })
 
 # show a couple example plots
 # expected_plotz$raw$mock
 # expected_plotz$raw$aquarium
-expected_plotz$raw$lagoon
+# expected_plotz$raw$lagoon
 
 # another hacky little map so we get the right plot sizes
 plotsizes <- list(
@@ -883,8 +891,11 @@ if (save_pdf) {
     iwalk(~{
       r <- .y
       .x %>% iwalk(~{
-        p <- .y
-        ggsave(path(fig_dir,str_glue("expected_{p}_{r}.pdf")),.x,device=cairo_pdf,width=plotsizes[[p]][1],height=plotsizes[[p]][2],units="in")
+        t <- .y
+        .x %>% iwalk(~{
+          p <- .y
+          ggsave(path(fig_dir,str_glue("expected_{p}_{t}_{r}.pdf")),.x,device=cairo_pdf,width=plotsizes[[p]][1],height=plotsizes[[p]][2],units="in")
+        })
       })
     })
 }
