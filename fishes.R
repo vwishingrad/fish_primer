@@ -491,7 +491,7 @@ marker_summary_tables <- raw_seq_data %>%
         `Total fish reads` = num(sum(fish)),
         `Mean fish reads per sample` = str_glue("{num(mean(fish))} ± {num(sd(fish))}"),
         
-        `Total zOTUs` = num( sum(zotus)  ),
+        # `Total zOTUs` = num( sum(zotus)  ),
         `Mean zOTUs per sample` = str_glue("{num(mean(zotus))} ± {num(sd(zotus))}"),
         
         `Total fish zOTUs` = num( sum(fish_zotus) ),
