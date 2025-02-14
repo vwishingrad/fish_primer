@@ -64,8 +64,11 @@ dataset_map <- list(
 # map dataset names to display titles
 title_map <- c(
   mock = "Mock community",
+  mc = "Mock community",
   aquarium = "Waikīkī Aquarium",
-  lagoon = "Lagoon"
+  wa = "Waikīkī Aquarium",
+  lagoon = "Lagoon",
+  sp = "Lagoon"
 )
 
 # marker name map
@@ -166,11 +169,12 @@ fishes_raw <- markers %>%
         
         # concatenate zotus with marker name like this marker(zotu1,zotu2,zotu3,...)
         zotus = str_glue("{marker}({str_c(otu,collapse=',')})"), 
+        zotu_list = list(otu),
         zotu_count = n(),
         marker = marker
       ) %>%
       ungroup() %>%
-      select(domain:species,marker,representative,zotus,zotu_count,all_of(samples))
+      select(domain:species,marker,representative,zotus,zotu_list,zotu_count,all_of(samples))
   }) %>%
   list_rbind() %>%
   # these operations are done on the fully concatenated dataset
@@ -203,10 +207,12 @@ fishes <- fishes_raw %>%
     zotus=str_c(zotus,collapse=','),
     total_zotu_count = sum(zotu_count),
     marker_zotu_count = str_c(str_glue("{marker}:{zotu_count}"),collapse=","),
+    zotu_list = list(zotu_list),
     # sum read counts ()
     across(all_of(all_samples),nasum)
   ) %>%
-  ungroup()
+  ungroup() %>%
+  mutate(zotu_list = map(zotu_list,~set_names(.x,markers)))
 
 # pull out sample names
 samples <- all_samples
@@ -530,6 +536,86 @@ all_summary <- datasets$raw %>%
   list_rbind() %>%
   mutate(Marker = marker_map[Marker]) %>%
   select(`Sample type`,everything())
+
+pluralize <- function(s) {
+  map_chr(s,\(s) {
+    if (str_detect(s,regex("y$",ignore_case = TRUE))) {
+      str_replace(s,"y$","ies")
+    } else if (str_detect(s,regex("um$",ignore_case = TRUE))) {
+      str_replace(s,"um$","a")
+    } else if (s != "zOTUs" & str_detect(s,regex("us$",ignore_case = TRUE))) {
+      str_replace(s,"us$","era")
+    } else if (s == "class") {
+      return("classes")
+    } else if (s %in% c("species","zOTUs")) {
+      return(s)
+    } else {
+      str_c(s,"s")
+    }
+  })
+}
+
+
+reverse_marker_map <- markers %>%
+  set_names(make_clean_names(markers))
+
+all_summary  <- fishes_filtered %>%
+  # pivot sample names to long with marker, type, and sample #
+  pivot_longer(any_of(samples),names_pattern = '^(.+)_(..)([^_]+)$',names_to = c("marker","type","sample"),values_to = "reads") %>%
+  # keep only detected entries
+  filter(reads > 0) %>%
+  mutate(
+    # rename marker to something nice
+    marker = reverse_marker_map[marker],
+    # filter to the zotus of the marker
+    zotu_list = map2(zotu_list,marker,\(zl,m) zl[[m]]),
+    # rename sample type to something nice
+    type = title_map[type],
+    # de-factorize family to species
+    across(family:species,as.character)
+  ) %>%
+  # unlist the zotu list
+  unnest(zotu_list) %>%
+  # get per-sample numbers for each marker and sample type
+  group_by(marker,type,sample) %>%
+  summarise(
+    # zotus per replicate
+    zOTUs_per_sample = n_distinct(zotu_list),
+    # re-list zotus
+    zotu_list = list(zotu_list),
+    # families, etc. per replicate
+    across(family:species,~n_distinct(identified(.x)),.names = "{.col}_per_sample"),
+    # re-list families, etc.
+    across(family:species,list)
+  ) %>%
+  # get number per marker and sample type
+  group_by(marker,type) %>%
+  summarise(
+    # get mean per-sample families, zotus, etc
+    across(ends_with("per_sample"),mean,.names = "{.col}_mean"),
+    # get per-sample families, zotus, etc std. dev.
+    across(ends_with("per_sample"),sd,.names = "{.col}_sd"),
+    # overall unique zotus
+    zOTUs = n_distinct(flatten(zotu_list)),
+    # overall unique identified families, etc.
+    across(family:species,~n_distinct(identified(flatten(.x))))
+  ) %>%
+  # sort by sample type and marker
+  rename_with(.cols=zOTUs:species,pluralize) %>%
+  pivot_longer(contains("per_sample"),names_pattern = "(.+)_per_sample_(.+)", names_to = c("taxon","measurement")) %>%
+  mutate(value = round(value,1)) %>%
+  group_by(marker,taxon,type) %>%
+  summarise(
+    across(-c(value,measurement),first),
+    value = str_c(value,collapse = " ± ")
+  ) %>%
+  mutate(taxon = str_c(pluralize(taxon)," per replicate")) %>%
+  pivot_wider(names_from="taxon",values_from="value") %>%
+  rename_with(.cols = matches("^(fam|gen|spe)"),str_to_sentence) %>%
+  mutate(type = factor(type,levels=unique(title_map))) %>%
+  arrange(type,marker) %>%
+  select(`Sample type`=type,Marker=marker,starts_with("fam"),starts_with("gen"),starts_with("spe"),starts_with("zotu"))
+
 
 write_tsv(all_summary,path(tbl_dir,"all_summary.tsv"))
 
