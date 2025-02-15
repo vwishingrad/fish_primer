@@ -296,7 +296,7 @@ fishes_filtered <- fishes %>%
   )
 
 rr <- {if (rarefy) c(FALSE,TRUE) else c(FALSE)}
-rn <- {if (rarefy) c("raw","rarefied") else c("raw")}
+rn <- {if (rarefy) c("complete","rarefied") else c("complete")}
 
 # use the map to break out the different sample types and pivot to long format
 # do one that's rarefied and one that's not
@@ -371,7 +371,7 @@ unid_counts <- datasets %>%
       })
   })
 
-all_taxa <- datasets$raw %>%
+all_taxa <- datasets$complete %>%
   map(~.x %>% select(domain:species)) %>%
   list_rbind() %>%
   distinct(domain,kingdom,phylum,class,order,family,genus,species,.keep_all = TRUE) %>%
@@ -508,7 +508,7 @@ marker_summary_tables %>%
     write_tsv(.x,path(tbl_dir,str_glue("{.y}_marker_summary.tsv")))  
   })
 
-all_summary <- datasets$raw %>%
+all_summary <- datasets$complete %>%
   imap(~{
     ds <- .x %>%
       rename(Marker=marker) %>%
@@ -537,6 +537,7 @@ all_summary <- datasets$raw %>%
   mutate(Marker = marker_map[Marker]) %>%
   select(`Sample type`,everything())
 
+# hacky function to make things like "family" into "families" and "genus" into "genera"
 pluralize <- function(s) {
   map_chr(s,\(s) {
     if (str_detect(s,regex("y$",ignore_case = TRUE))) {
@@ -733,7 +734,7 @@ make_chord <- function(dd,margin,pal,units="",group=NULL) {
   circos.clear()
 }
 
-chord_plotz <- datasets$raw %>%
+chord_plotz <- datasets$complete %>%
   imap(~{
     dsn <- .y
     dd <- .x %>%
@@ -819,6 +820,8 @@ color_introduced <- TRUE
 # whether to do point or tile
 tile <- TRUE
 
+ranks <- c("genus","species")
+
 # create
 expected_plotz <- datasets %>%
   map(~{
@@ -863,7 +866,7 @@ expected_plotz <- datasets %>%
               
               # join everything together into the expected/unexpected table
               ss <- spp %>%
-                # keep only family to species
+                # keep only columns we want
                 select(all_of(join_cols)) %>%
                 distinct(across(all_of(join_cols))) %>%
                 # first set all expected species to expected
@@ -960,9 +963,9 @@ expected_plotz <- datasets %>%
   })
 
 # show a couple example plots
-# expected_plotz$raw$mock
-# expected_plotz$raw$aquarium
-# expected_plotz$raw$lagoon
+# expected_plotz$complete$mock
+# expected_plotz$complete$aquarium
+# expected_plotz$complete$lagoon
 
 # another hacky little map so we get the right plot sizes
 plotsizes <- list(
@@ -1059,9 +1062,9 @@ upset_plotz <- datasets %>%
   })
 
 # show upset plots for family and zotu in the unrarefied mock community
-# upset_plotz$raw$lagoon$family / upset_plotz$raw$lagoon$zotu + plot_annotation(tag_levels = plot_tags)
-# upset_plotz$raw$aquarium$family / upset_plotz$raw$aquarium$zotu + plot_annotation(tag_levels = plot_tags)
-# upset_plotz$raw$mock$family / upset_plotz$raw$mock$zotu + plot_annotation(tag_levels = plot_tags)
+# upset_plotz$complete$lagoon$family / upset_plotz$complete$lagoon$zotu + plot_annotation(tag_levels = plot_tags)
+# upset_plotz$complete$aquarium$family / upset_plotz$complete$aquarium$zotu + plot_annotation(tag_levels = plot_tags)
+# upset_plotz$complete$mock$family / upset_plotz$complete$mock$zotu + plot_annotation(tag_levels = plot_tags)
 
 # put the plots together for each sample type
 upset_composites <- upset_plotz %>%
@@ -1139,9 +1142,9 @@ rel_taxon_plotz <- datasets %>%
       }) 
   })
 
-# rel_taxon_plotz$raw$family$aquarium
-# rel_taxon_plotz$raw$family$mock
-# rel_taxon_plotz$raw$family$lagoon
+# rel_taxon_plotz$complete$family$aquarium
+# rel_taxon_plotz$complete$family$mock
+# rel_taxon_plotz$complete$family$lagoon
 
 # reduce all these plots to one big one using patchwork
 
@@ -1181,8 +1184,8 @@ if (save_pdf) {
     })
 }
 # see them like this
-# rel_taxon_composites$raw$family
-# rel_taxon_composites$raw$order
+# rel_taxon_composites$complete$family
+# rel_taxon_composites$complete$order
 
 # relative zotu abundance heatmaps (Figs. S3-S4) ---------------------------
 
