@@ -508,34 +508,35 @@ marker_summary_tables %>%
     write_tsv(.x,path(tbl_dir,str_glue("{.y}_marker_summary.tsv")))  
   })
 
-all_summary <- datasets$complete %>%
-  imap(~{
-    ds <- .x %>%
-      rename(Marker=marker) %>%
-      distinct(Marker,zotu,.keep_all = TRUE) %>%
-      mutate(Marker = fct_expand(Marker,"All markers"))
-    
-    ds %>%
-      group_by(Marker) %>%
-      summarise(
-        `Families` = n_distinct(family[!str_detect(family, "unidentified")]),
-        `Species` = n_distinct(species[!str_detect(species, "unidentified| sp\\.")]),
-        `zOTUs` = sum(marker_zotu_count)
-      ) %>%
-      ungroup() %>%
-      rbind(
-        list(
-          Marker = "All markers",
-          `Families` = n_distinct(ds[!str_detect(ds$family, "unidentified"),"family"]),
-          `Species` = n_distinct(ds[!str_detect(ds$species, "unidentified| sp\\."),"species"]),
-          `zOTUs` = sum(ds$marker_zotu_count) 
-        )
-      ) %>%
-      mutate(`Sample type` = title_map[.y]) 
-  }) %>%
-  list_rbind() %>%
-  mutate(Marker = marker_map[Marker]) %>%
-  select(`Sample type`,everything())
+# old summary table
+# all_summary <- datasets$complete %>%
+#   imap(~{
+#     ds <- .x %>%
+#       rename(Marker=marker) %>%
+#       distinct(Marker,zotu,.keep_all = TRUE) %>%
+#       mutate(Marker = fct_expand(Marker,"All markers"))
+#     
+#     ds %>%
+#       group_by(Marker) %>%
+#       summarise(
+#         `Families` = n_distinct(family[!str_detect(family, "unidentified")]),
+#         `Species` = n_distinct(species[!str_detect(species, "unidentified| sp\\.")]),
+#         `zOTUs` = sum(marker_zotu_count)
+#       ) %>%
+#       ungroup() %>%
+#       rbind(
+#         list(
+#           Marker = "All markers",
+#           `Families` = n_distinct(ds[!str_detect(ds$family, "unidentified"),"family"]),
+#           `Species` = n_distinct(ds[!str_detect(ds$species, "unidentified| sp\\."),"species"]),
+#           `zOTUs` = sum(ds$marker_zotu_count) 
+#         )
+#       ) %>%
+#       mutate(`Sample type` = title_map[.y]) 
+#   }) %>%
+#   list_rbind() %>%
+#   mutate(Marker = marker_map[Marker]) %>%
+#   select(`Sample type`,everything())
 
 # hacky function to make things like "family" into "families" and "genus" into "genera"
 pluralize <- function(s) {
