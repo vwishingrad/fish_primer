@@ -242,3 +242,19 @@ newggplot.ggdend <- function (data = NULL, mapping = aes(), ..., segments = TRUE
 # replace the function in the package namespace
 assignInNamespace(x = "ggplot.ggdend", ns = "dendextend", value = newggplot.ggdend)
 
+# return only identified things
+identified <- function(taxa) {
+  grep("unidentified| sp\\.",taxa,value = TRUE,invert = TRUE,ignore.case = TRUE)
+}
+
+# how to filter unidentified taxa and factor levels
+filter_unidentified <- function(df, pl) {
+  unid = "unidentified| sp\\."
+  lvls = levels(df[[pl]])[grep(unid, levels(df[[pl]]))]
+  filt_df = df %>%
+    filter(!str_detect(.data[[pl]], unid)) %>%
+    mutate("{pl}" := fct_collapse(.data[[pl]], unidentified = lvls)) %>%
+    mutate("{pl}" := fct_recode(.data[[pl]], NULL = "unidentified"))
+  return(filt_df)
+}
+
