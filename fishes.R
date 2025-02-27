@@ -16,7 +16,7 @@ library(ggplotify)
 # setup -------------------------------------------------------------------
 
 # whether to save to pdf all the time
-save_pdf <- FALSE
+save_pdf <- TRUE
 
 # prefill list of plot tags
 plot_tags <- list(str_glue("({letters})"))
@@ -67,8 +67,8 @@ title_map <- c(
   mc = "Mock community",
   aquarium = "Waikīkī Aquarium",
   wa = "Waikīkī Aquarium",
-  lagoon = "Lagoon",
-  sp = "Lagoon"
+  lagoon = "Coral Reef Lagoon",
+  sp = "Coral Reef Lagoon"
 )
 
 # marker name map
@@ -92,7 +92,7 @@ min_total <- 25
 min_reads <- 10
 
 # whether to rarefy at all
-rarefy <- FALSE
+rarefy <- TRUE
 
 # number of rarefaction permutations
 rarefy_perm <- 100
@@ -447,7 +447,7 @@ raw_seq_data <- markers %>%
       mutate(
         sample_type = case_when(
           sample == "blanks" ~ "Blanks",
-          str_detect(sample,regex(dataset_map$lagoon,ignore_case = TRUE)) ~ "Lagoon",
+          str_detect(sample,regex(dataset_map$lagoon,ignore_case = TRUE)) ~ "Coral Reef Lagoon",
           str_detect(sample,regex(dataset_map$aquarium,ignore_case = TRUE)) ~ "Waikīkī Aquarium",
           str_detect(sample,regex(dataset_map$mock,ignore_case = TRUE)) ~ "Mock community"
         )
@@ -460,7 +460,7 @@ raw_seq_data <- markers %>%
       group_by(sample) %>%
       mutate(rel_reads = reads / sum(reads), rel_zotus = zotus/sum(zotus)) %>%
       # relevel sample types into order they are discussed
-      mutate(sample_type = factor(sample_type, levels = c("Mock community", "Waikīkī Aquarium", "Lagoon"))) %>%
+      mutate(sample_type = factor(sample_type, levels = c("Mock community", "Waikīkī Aquarium", "Coral Reef Lagoon"))) %>%
       arrange(sample_type,grouping)
   })
 
@@ -494,9 +494,9 @@ marker_summary_tables <- raw_seq_data %>%
         # `Total zOTUs` = num( sum(zotus)  ),
         `Mean zOTUs per sample` = str_glue("{num(mean(zotus))} ± {num(sd(zotus))}"),
         
-        `Total fish zOTUs` = num( sum(fish_zotus) ),
+        #`Total fish zOTUs` = num( sum(fish_zotus) ),
         `Mean fish zOTUs per sample` = str_glue("{num(mean(fish_zotus))} ± {num(sd(fish_zotus))}"),
-        `Max fish zOTUs` = num(max(fish_zotus))
+        #`Max fish zOTUs` = num(max(fish_zotus))
       ) %>%
       ungroup() %>%
       rename(`Sample type` = sample_type)
