@@ -491,12 +491,9 @@ marker_summary_tables <- raw_seq_data %>%
         `Total fish reads` = num(sum(fish)),
         `Mean fish reads per sample` = str_glue("{num(mean(fish))} ± {num(sd(fish))}"),
         
-        # `Total zOTUs` = num( sum(zotus)  ),
-        `Mean zOTUs per sample` = str_glue("{num(mean(zotus))} ± {num(sd(zotus))}"),
+        `Mean ZOTUs per sample` = str_glue("{num(mean(zotus))} ± {num(sd(zotus))}"),
         
-        #`Total fish zOTUs` = num( sum(fish_zotus) ),
-        `Mean fish zOTUs per sample` = str_glue("{num(mean(fish_zotus))} ± {num(sd(fish_zotus))}"),
-        #`Max fish zOTUs` = num(max(fish_zotus))
+        `Mean fish ZOTUs per sample` = str_glue("{num(mean(fish_zotus))} ± {num(sd(fish_zotus))}"),
       ) %>%
       ungroup() %>%
       rename(`Sample type` = sample_type)
@@ -508,36 +505,6 @@ marker_summary_tables %>%
     write_tsv(.x,path(tbl_dir,str_glue("{.y}_marker_summary.tsv")))  
   })
 
-# old summary table
-# all_summary <- datasets$complete %>%
-#   imap(~{
-#     ds <- .x %>%
-#       rename(Marker=marker) %>%
-#       distinct(Marker,zotu,.keep_all = TRUE) %>%
-#       mutate(Marker = fct_expand(Marker,"All markers"))
-#     
-#     ds %>%
-#       group_by(Marker) %>%
-#       summarise(
-#         `Families` = n_distinct(family[!str_detect(family, "unidentified")]),
-#         `Species` = n_distinct(species[!str_detect(species, "unidentified| sp\\.")]),
-#         `zOTUs` = sum(marker_zotu_count)
-#       ) %>%
-#       ungroup() %>%
-#       rbind(
-#         list(
-#           Marker = "All markers",
-#           `Families` = n_distinct(ds[!str_detect(ds$family, "unidentified"),"family"]),
-#           `Species` = n_distinct(ds[!str_detect(ds$species, "unidentified| sp\\."),"species"]),
-#           `zOTUs` = sum(ds$marker_zotu_count) 
-#         )
-#       ) %>%
-#       mutate(`Sample type` = title_map[.y]) 
-#   }) %>%
-#   list_rbind() %>%
-#   mutate(Marker = marker_map[Marker]) %>%
-#   select(`Sample type`,everything())
-
 # hacky function to make things like "family" into "families" and "genus" into "genera"
 pluralize <- function(s) {
   map_chr(s,\(s) {
@@ -545,11 +512,11 @@ pluralize <- function(s) {
       str_replace(s,"y$","ies")
     } else if (str_detect(s,regex("um$",ignore_case = TRUE))) {
       str_replace(s,"um$","a")
-    } else if (s != "zOTUs" & str_detect(s,regex("us$",ignore_case = TRUE))) {
+    } else if (s != "ZOTUs" & str_detect(s,regex("us$",ignore_case = TRUE))) {
       str_replace(s,"us$","era")
     } else if (s == "class") {
       return("classes")
-    } else if (s %in% c("species","zOTUs")) {
+    } else if (s %in% c("species","ZOTUs")) {
       return(s)
     } else {
       str_c(s,"s")
@@ -582,7 +549,7 @@ all_summary  <- fishes_filtered %>%
   group_by(marker,type,sample) %>%
   summarise(
     # zotus per replicate
-    zOTUs_per_sample = n_distinct(zotu_list),
+    ZOTUs_per_sample = n_distinct(zotu_list),
     # re-list zotus
     zotu_list = list(zotu_list),
     # families, etc. per replicate
@@ -598,12 +565,12 @@ all_summary  <- fishes_filtered %>%
     # get per-sample families, zotus, etc std. dev.
     across(ends_with("per_sample"),sd,.names = "{.col}_sd"),
     # overall unique zotus
-    zOTUs = n_distinct(flatten(zotu_list)),
+    ZOTUs = n_distinct(flatten(zotu_list)),
     # overall unique identified families, etc.
     across(family:species,~n_distinct(identified(flatten(.x))))
   ) %>%
   # sort by sample type and marker
-  rename_with(.cols=zOTUs:species,pluralize) %>%
+  rename_with(.cols=ZOTUs:species,pluralize) %>%
   pivot_longer(contains("per_sample"),names_pattern = "(.+)_per_sample_(.+)", names_to = c("taxon","measurement")) %>%
   mutate(value = round(value,1)) %>%
   group_by(marker,taxon,type) %>%
@@ -946,7 +913,6 @@ expected_plotz <- datasets %>%
                 scale_fill_manual(values=mp,guide="none",na.value = "white") + 
                 # put the x axis labels on top
                 scale_x_discrete(position="top") +
-                # scale_y_discrete(expand = expansion(mult=1.5)) + 
                 # facet by expected
                 ggforce::facet_col(~exp,scales="free",space="free") + 
                 # make it look nicer
