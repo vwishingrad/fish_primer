@@ -13,7 +13,7 @@ library(ggtext)
 library(circlize)
 library(ggplotify)
 
-# setup -------------------------------------------------------------------
+# setup -----------------------------------------------------------------------------------------------------------
 
 # whether to save to pdf all the time
 save_pdf <- TRUE
@@ -114,7 +114,7 @@ relevel_unid <- function(f) {
 # shortcut to do sum(x,na.rm=TRUE)
 nasum <- function(x) sum(x,na.rm=TRUE)
 
-# initial data import & filtering -----------------------------------------
+# initial data import & filtering ---------------------------------------------------------------------------------
 
 # all sample column names
 all_samples <- c()
@@ -404,11 +404,11 @@ palettes <- c("class","order","family","species") %>%
       set_names(c(feesh,sharks))
   })
 
-# start here --------------------------------------------------------------
+# start here ------------------------------------------------------------------------------------------------------
 
 # this is just a placeholder space that allows us to jump here using rstudio's navigation shortcut
 
-# generate tables ---------------------------------------------------------
+# generate tables -------------------------------------------------------------------------------------------------
 
 # get raw sequencing data, including negative control filtering
 raw_seq_data <- markers %>%
@@ -425,11 +425,11 @@ raw_seq_data <- markers %>%
         # sum across blanks into column `blanks`
         blanks = rowSums(pick(matches("Blank")),na.rm=TRUE),
         # subtract blank reads from sample reads
-        across(-c(domain:seq_length,blanks),~.x-blanks),
+        across(-c(domain:seq_length,blanks,contains("Blank",ignore.case = FALSE)),~.x-blanks),
         # set negative reads to zero
         across(where(is.numeric),~replace(.x,which(.x < 0),0))
       ) %>%
-      select(-starts_with(marker),contains("blank"),where(~is.numeric(.x) && sum(.x) > 0)) %>%
+      select(-starts_with(marker),contains("blank"),where(~is.numeric(.x) && sum(.x) > 0),-blanks) %>%
       pivot_longer(-c(domain:seq_length),names_to = "sample",values_to="reads") %>%
       # make categorical groupings for bar plots
       mutate(
@@ -446,7 +446,7 @@ raw_seq_data <- markers %>%
       # give them a sample type
       mutate(
         sample_type = case_when(
-          sample == "blanks" ~ "Blanks",
+          str_detect(sample,regex("blank",ignore_case = TRUE)) ~ "Blanks",
           str_detect(sample,regex(dataset_map$lagoon,ignore_case = TRUE)) ~ "Coral Reef Lagoon",
           str_detect(sample,regex(dataset_map$aquarium,ignore_case = TRUE)) ~ "Waikīkī Aquarium",
           str_detect(sample,regex(dataset_map$mock,ignore_case = TRUE)) ~ "Mock community"
@@ -465,7 +465,7 @@ raw_seq_data <- markers %>%
       group_by(sample) %>%
       mutate(rel_reads = reads / sum(reads), rel_zotus = zotus/sum(zotus)) %>%
       # relevel sample types into order they are discussed
-      mutate(sample_type = factor(sample_type, levels = c("Mock community", "Waikīkī Aquarium", "Coral Reef Lagoon"))) %>%
+      mutate(sample_type = factor(sample_type, levels = c("Mock community", "Waikīkī Aquarium", "Coral Reef Lagoon","Blanks"))) %>%
       arrange(sample_type,grouping)
   })
 
@@ -600,7 +600,7 @@ all_summary  <- fishes_filtered %>%
 
 write_tsv(all_summary,path(tbl_dir,"all_summary.tsv"))
 
-# community multivariate statistics and pcoa plots (Fig. pt. 1) ------------
+# community multivariate statistics and pcoa plots (Fig. pt. 1) ---------------------------------------------------
 
 community_stats <- datasets %>%
   map(~{
@@ -692,7 +692,8 @@ pcoa_plotz <- community_stats %>%
       })
   })
 
-# chord plots (Fig. 1 pt. 2) ----------------------------------------------
+# chord plots (Fig. 1 pt. 2) --------------------------------------------------------------------------------------
+
 make_chord <- function(dd,margin,pal,units="",group=NULL) {
   circos.clear()
   if (units == "in") {
@@ -767,7 +768,7 @@ if (save_pdf) {
     iwalk(~ggsave(path(fig_dir,str_glue("chord_pcoa_composite_{.y}.pdf")),.x,device=cairo_pdf,width=12,height=22,units="in"))
 }
 
-# expected vs unexpected species detections (Figs. 2-4) -------------------
+# expected vs unexpected species detections (Figs. 2-4 and S9-S11) ------------------------------------------------
 
 # load known invasive/introduced species
 ais <- read_csv(path(data_dir,"ais.csv"))
@@ -968,53 +969,7 @@ if (save_pdf) {
     })
 }
 
-# primer performance plots (Fig. 5) ---------------------------------------
-primer_taxa_pal <- c(
-  "Bony fishes" = "#3B01FE",
-  "Sharks & rays" = "#A9A9A9",
-  "Mammals" = "#EE82EF",
-  "Bacteria" = "#ED0105",
-  "Other" = "#F2A503"
-)
-
-primer_plotz <- raw_seq_data %>%
-  imap(~{
-    pd <- .x %>%
-      # get rid of blanks
-      filter(sample_type != "Blanks")
-    nn = .y
-    
-    read_rel <- ggplot(pd) + 
-      geom_col(aes(x=sample,y=rel_reads,fill=grouping), show.legend = TRUE) + 
-      scale_fill_manual(values = primer_taxa_pal, name = "Group", drop=FALSE) + 
-      scale_y_continuous(labels=scales::percent, expand = expansion(mult=c(0.01,NA))) +
-      labs(subtitle = marker_map[.y], y="Relative sequence abundance") + 
-      facet_wrap(~sample_type,scales="free_x",strip.position = "bottom") &
-      theme_bw() & 
-      theme(
-        panel.border = element_blank(),
-        axis.line = element_line(color="black"),
-        panel.grid = element_blank(),
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        axis.title = element_text(face="bold"),
-        strip.background = element_rect(fill=NA,color=NA)
-      )
-  })
-
-primers_rel_reads_plot <- primer_plotz %>%
-  map(~.x) %>%
-  reduce(`+`) + 
-  plot_layout(ncol = 2, axis_titles = "collect", guides = "collect") +
-  plot_annotation(tag_levels = plot_tags) & 
-  labs(x="")
-
-if (save_pdf) {
-  ggsave(path(fig_dir,"primer_relative_reads.pdf"),device=cairo_pdf,primers_rel_reads_plot,width=9.5,height=6.5,units="in")
-}
-
-# family intersections (upset plots) (Fig. 6) -------------------------------
+# family intersections (upset plots) (Fig. 5) ---------------------------------------------------------------------
 
 upset_plotz <- datasets %>%
   map(~{
@@ -1067,7 +1022,7 @@ if (save_pdf) {
     })
 }
 
-# taxon bar plots (Figs. S1-S2) -------------------------------------------
+# taxon bar plots (Figs. S1-S2) -----------------------------------------------------------------------------------
 
 # taxonomic levels at which to group bar plots
 plot_levels <- c("order","family")
@@ -1166,7 +1121,7 @@ if (save_pdf) {
 # rel_taxon_composites$complete$family
 # rel_taxon_composites$complete$order
 
-# relative zotu abundance heatmaps (Figs. S3-S4) ---------------------------
+# relative zotu abundance heatmaps (Figs. S3-S4) ------------------------------------------------------------------
 
 # plot zotus by taxonomic level
 plot_levels <- c("order","family")
@@ -1232,8 +1187,84 @@ if (save_pdf) {
     })
 }
 
+# primer performance plots (Figs. S5-S8 ) -------------------------------------------------------------------------
 
-# proportion of expected taxa (not included in MS) ------------------------
+primer_taxa_pal <- c(
+  "Bony fishes" = "#3B01FE",
+  "Sharks & rays" = "#A9A9A9",
+  "Mammals" = "#EE82EF",
+  "Bacteria" = "#ED0105",
+  "Other" = "#F2A503"
+)
+
+title_map <- c(
+  "rel_zotus" = "Relative ZOTU abundance",
+  "zotus" = "Absolute ZOTU abundance",
+  "rel_reads" = "Relative sequence abundance",
+  "reads" = "Absolute sequence abundance"
+)
+
+scales_map <- list(
+  rel_zotus = scales::percent,
+  zotus = scales::number,
+  rel_reads = scales::percent,
+  reads = scales::number
+)
+
+vars <- c("rel_reads","reads","rel_zotus","zotus")
+
+
+primer_plotz <- vars %>%
+  set_names %>%
+  map(\(v) {
+    
+    pp <- raw_seq_data %>%
+      imap(~{
+        pd <- .x #%>%
+        # get rid of blanks
+        # filter(sample_type != "Blanks")
+        nn = .y
+        read_rel <- ggplot(pd) + 
+          geom_col(aes(x=sample,y=.data[[v]],fill=grouping), show.legend = TRUE) + 
+          scale_fill_manual(values = primer_taxa_pal, name = "Group", drop=FALSE) + 
+          scale_y_continuous(labels=scales_map[[v]], expand = expansion(mult=c(0.01,NA))) +
+          labs(subtitle = marker_map[.y], y=title_map[v]) + 
+          facet_wrap(~sample_type,scales="free_x",strip.position = "bottom") &
+          theme_bw() & 
+          theme(
+            panel.border = element_blank(),
+            axis.line = element_line(color="black"),
+            panel.grid = element_blank(),
+            axis.title.x = element_blank(),
+            axis.text.x = element_blank(),
+            axis.ticks.x = element_blank(),
+            axis.title = element_text(face="bold"),
+            strip.background = element_rect(fill=NA,color=NA)
+          )
+      })
+    
+    design <- "
+      1122
+      3344
+      #55#
+    "
+    pp %>%
+      map(~.x) %>%
+      reduce(`+`) + 
+      plot_layout(ncol = 2, axis_titles = "collect_y", guides = "collect",design = design) +
+      plot_annotation(tag_levels = plot_tags) & 
+      labs(x="")
+  })
+
+if (save_pdf) {
+  primer_plotz %>%
+    iwalk(\(p,v) {
+      ggsave(path(fig_dir,str_glue("primer_{v}.pdf")),device=cairo_pdf,p,width=11,height=14,units="in")
+    })
+}
+
+
+# proportion of expected taxa (not included in MS) ----------------------------------------------------------------
 
 proportion_expected_plotz <- datasets %>%
   map(~{
