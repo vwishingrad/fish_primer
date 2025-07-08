@@ -506,7 +506,9 @@ marker_summary_tables <- raw_seq_data %>%
         `Total fish ZOTUs` = n_distinct(unlist(fz))
       ) %>%
       ungroup() %>%
-      rename(`Sample type` = sample_type)
+      rename(`Sample type` = sample_type) %>%
+      mutate(`Sample type` = fct_relevel(`Sample type`,"Waikīkī Aquarium",after=Inf)) %>%
+      arrange(`Sample type`)
   })
 
 # save summary tables
