@@ -454,7 +454,12 @@ raw_seq_data <- markers %>%
       ) %>%
       # now get reads and zotus
       group_by(sample_type,sample,grouping) %>%
-      summarise(reads = sum(reads), zotus = n_distinct(OTU)) %>%
+      summarise(
+        reads = sum(reads),
+        zotus = n_distinct(OTU),
+        zz=list(OTU),
+        fz=list(OTU[grouping %in% c("Sharks & rays","Bony fishes")])
+      ) %>%
       ungroup() %>%
       # get relative reads and relative zotus
       group_by(sample) %>%
@@ -479,6 +484,8 @@ marker_summary_tables <- raw_seq_data %>%
         reads = sum(reads),
         fish_zotus = sum(zotus[grp == "fishes"]),
         zotus = sum(zotus),
+        zz = list(unique(unlist(zz))),
+        fz = list(unique(unlist(fz)))
       ) %>%
       ungroup() %>%
       # now further collapse by sample type
@@ -494,6 +501,9 @@ marker_summary_tables <- raw_seq_data %>%
         `Mean ZOTUs per sample` = str_glue("{num(mean(zotus))} ± {num(sd(zotus))}"),
         
         `Mean fish ZOTUs per sample` = str_glue("{num(mean(fish_zotus))} ± {num(sd(fish_zotus))}"),
+        
+        `Total ZOTUs` = n_distinct(unlist(zz)),
+        `Total fish ZOTUs` = n_distinct(unlist(fz))
       ) %>%
       ungroup() %>%
       rename(`Sample type` = sample_type)
